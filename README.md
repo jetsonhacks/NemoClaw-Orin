@@ -34,7 +34,7 @@ source ~/.bashrc
 > docker stop ollama
 > ```
 >
-> You can restart Ollama after `nemoclaw da-claw connect` succeeds.
+> You can restart Ollama after `nemoclaw <sandbox-name> connect` succeeds.
 
 ## What to expect
 
@@ -58,7 +58,7 @@ Use `restart-nemoclaw.sh` — do not use `openshell gateway start`:
 
 ```bash
 ./restart-nemoclaw.sh
-nemoclaw da-claw connect
+nemoclaw <sandbox-name> connect
 ```
 
 > [!WARNING]
