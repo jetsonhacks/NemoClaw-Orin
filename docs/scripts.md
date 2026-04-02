@@ -39,7 +39,7 @@ What it does not do:
 - does not switch host `iptables` alternatives
 - does not flush host firewall rules
 
-## `Dockerfile.openshell-cluster-patched`
+## `Dockerfile.openshell-cluster-jetson`
 
 Builds a local OpenShell cluster image with SSH handshake secret persistence.
 
@@ -55,6 +55,13 @@ Modes:
 ## `onboard-nemoclaw.sh`
 
 Runs NemoClaw onboarding with extra checks around tooling, memory, swap, port conflicts, and image validation.
+
+## `lib/fix-coredns.sh`
+
+Patches the k3s CoreDNS configuration inside the OpenShell gateway container to
+forward to a real non-loopback upstream DNS server.
+
+Use it when the gateway cluster is up but in-cluster DNS appears broken.
 
 ## `forward-openclaw.sh`
 

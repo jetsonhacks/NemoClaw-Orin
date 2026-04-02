@@ -18,8 +18,19 @@ set -Eeuo pipefail
 #
 # Optional environment overrides:
 #   NEMOCLAW_CLONE_URL=https://...   Override the NemoClaw git repository URL
+#   NEMOCLAW_GIT_REF=<ref>|latest    Override the NemoClaw git ref selection
 
-NEMOCLAW_CLONE_URL="${NEMOCLAW_CLONE_URL:-https://github.com/NVIDIA/NemoClaw.git}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/component-versions.sh}"
+[[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
+  printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+source "$COMPONENT_VERSIONS_PATH"
+
+NEMOCLAW_CLONE_URL="${NEMOCLAW_CLONE_URL:-$NEMOCLAW_REPO_URL}"
+NEMOCLAW_GIT_REF="${NEMOCLAW_GIT_REF:-latest}"
 
 log()      { printf '\n==> %s\n' "$*"; }
 warn()     { printf '\n[WARN] %s\n' "$*" >&2; }
@@ -32,8 +43,11 @@ Usage:
   ./install-nemoclaw-cli.sh
 
 Environment:
+  COMPONENT_VERSIONS_PATH Override path to component-versions.sh
   NEMOCLAW_CLONE_URL   Override the NemoClaw git repository URL
-                       (default: https://github.com/NVIDIA/NemoClaw.git)
+                       (default: ${NEMOCLAW_CLONE_URL})
+  NEMOCLAW_GIT_REF    Override the NemoClaw git ref
+                      (default: ${NEMOCLAW_GIT_REF})
 EOF_USAGE
 }
 
@@ -76,16 +90,31 @@ redirect_npm_prefix_if_system() {
   fi
 }
 
+checkout_nemoclaw_ref() {
+  local clone_dir="$1"
+  local default_branch
+
+  if [[ "$NEMOCLAW_GIT_REF" == "latest" ]]; then
+    log "Using NemoClaw default branch HEAD"
+    git -C "$clone_dir" fetch --prune origin
+    default_branch="$(git -C "$clone_dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+    [[ -n "$default_branch" ]] || default_branch="main"
+    git -C "$clone_dir" checkout "$default_branch" 2>/dev/null || git -C "$clone_dir" checkout -b "$default_branch" --track "origin/$default_branch"
+    git -C "$clone_dir" pull --ff-only origin "$default_branch"
+    return 0
+  fi
+
+  log "Checking out NemoClaw ref: $NEMOCLAW_GIT_REF"
+  git -C "$clone_dir" fetch --prune origin
+  git -C "$clone_dir" checkout --detach "$NEMOCLAW_GIT_REF"
+}
+
 patch_nemoclaw_onboard() {
   # NemoClaw unconditionally overwrites OPENSHELL_CLUSTER_IMAGE with
   # the upstream ghcr.io image, ignoring any value already set in the
-  # environment. On Jetson we need the patched local image (iptables-legacy)
-  # or the gateway container crashes at startup. This patch makes NemoClaw
-  # respect a pre-set OPENSHELL_CLUSTER_IMAGE.
-  #
-  # It also forces NVIDIA Endpoints/NIM sandboxes to use openai-completions.
-  # Responses API probing may succeed, but OpenClaw currently behaves better
-  # with completions for the Nemotron route on Jetson.
+  # environment. On Jetson we need the patched local image selected by this
+  # repository rather than the upstream default image. This patch makes
+  # NemoClaw respect a pre-set OPENSHELL_CLUSTER_IMAGE.
   #
   # The patch is idempotent: it checks for the already-patched string before
   # applying, so re-running is safe.
@@ -97,8 +126,6 @@ patch_nemoclaw_onboard() {
 
   local image_needle='if (stableGatewayImage && openshellVersion) {'
   local image_patch='if (stableGatewayImage && openshellVersion && !process.env.OPENSHELL_CLUSTER_IMAGE) {'
-  local nvidia_needle=$'    case "nvidia-prod":\n    case "nvidia-nim":\n    default:\n      providerKey = "inference";'
-  local nvidia_patch=$'    case "nvidia-prod":\n    case "nvidia-nim":\n      inferenceApi = "openai-completions";\n      providerKey = "inference";\n      primaryModelRef = `inference/${model}`;\n      break;\n    default:\n      providerKey = "inference";'
   local changed="false"
 
   if grep -qF "$image_patch" "$target"; then
@@ -112,45 +139,6 @@ patch_nemoclaw_onboard() {
   else
     warn "NemoClaw image override patch: expected string not found in $target"
     warn "Review manually: add '&& !process.env.OPENSHELL_CLUSTER_IMAGE' to the stableGatewayImage condition."
-  fi
-
-  if grep -qF '      inferenceApi = "openai-completions";' "$target"; then
-    log "NemoClaw NVIDIA inference patch already applied - skipping"
-  elif grep -qF "$nvidia_needle" "$target"; then
-    log "Patching NemoClaw onboard to force openai-completions for NVIDIA endpoints"
-    python3 - "$target" <<'PY'
-import sys
-
-path = sys.argv[1]
-needle = """    case "nvidia-prod":
-    case "nvidia-nim":
-    default:
-      providerKey = "inference";"""
-patch = """    case "nvidia-prod":
-    case "nvidia-nim":
-      inferenceApi = "openai-completions";
-      providerKey = "inference";
-      primaryModelRef = `inference/${model}`;
-      break;
-    default:
-      providerKey = "inference";"""
-
-with open(path, "r", encoding="utf-8") as f:
-    data = f.read()
-
-if needle not in data:
-    raise SystemExit(1)
-
-data = data.replace(needle, patch, 1)
-
-with open(path, "w", encoding="utf-8") as f:
-    f.write(data)
-PY
-    grep -qF '      inferenceApi = "openai-completions";' "$target" || die "NVIDIA inference patch verification failed - check $target manually"
-    changed="true"
-  else
-    warn "NemoClaw NVIDIA inference patch: expected switch block not found in $target"
-    warn "Review manually: force inferenceApi = \"openai-completions\" for nvidia-prod/nvidia-nim."
   fi
 
   if [[ "$changed" == "true" ]]; then
@@ -167,6 +155,7 @@ install_nemoclaw() {
   log "Installing NemoClaw CLI"
   printf 'Clone target: %s\n' "$clone_dir"
   printf 'Repository:   %s\n' "$NEMOCLAW_CLONE_URL"
+  printf 'Git ref:      %s\n' "$NEMOCLAW_GIT_REF"
 
   # Redirect npm global prefix away from system paths before cloning so that
   # npm link writes to a user-writable location.
@@ -174,17 +163,16 @@ install_nemoclaw() {
 
   if [[ -d "$clone_dir" ]]; then
     warn "Clone directory already exists: $clone_dir"
-    warn "Pulling latest changes instead of cloning fresh"
+    warn "Refreshing existing clone instead of cloning fresh"
     # The Jetson patch modifies bin/lib/onboard.js. Reset it before pulling so
     # upstream changes to that file are not blocked by the local modification.
     # The patch is re-applied unconditionally below.
     git -C "$clone_dir" checkout -- bin/lib/onboard.js 2>/dev/null || true
-    git -C "$clone_dir" pull --ff-only || \
-      die "git pull failed in $clone_dir — resolve conflicts or remove the directory and retry"
   else
     git clone "$NEMOCLAW_CLONE_URL" "$clone_dir"
   fi
 
+  checkout_nemoclaw_ref "$clone_dir"
   patch_nemoclaw_onboard "$clone_dir"
 
   (

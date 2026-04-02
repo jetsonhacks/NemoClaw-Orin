@@ -217,7 +217,7 @@ After every reboot, `openshell-0` and `da-claw` disagreed on the secret.
 Every connection was rejected. The only recovery was a full re-onboard, which
 regenerated both sides from scratch.
 
-**The fix** is in the patched cluster image (`Dockerfile.openshell-cluster-patched`).
+**The fix** is in the Jetson cluster image (`Dockerfile.openshell-cluster-jetson`).
 The entrypoint is modified to save the generated secret to the k3s persistent
 volume on first start, and reload it from there on subsequent starts. Since the
 volume survives stop/start cycles, both pods always share the same secret and

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/component-versions.sh}"
+[[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
+  printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+source "$COMPONENT_VERSIONS_PATH"
+
 OPENSHELL_INSTALL_URL="${OPENSHELL_INSTALL_URL:-https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh}"
-OPENSHELL_VERSION="${OPENSHELL_VERSION:-v0.0.16}"
+OPENSHELL_VERSION="${OPENSHELL_VERSION:-$OPEN_SHELL_CLI_VERSION_PIN}"
 
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf '\n[ERROR] %s\n' "$*" >&2; exit 1; }
@@ -14,6 +23,7 @@ Usage:
   ./install-openshell-cli.sh
 
 Environment:
+  COMPONENT_VERSIONS_PATH Override path to component-versions.sh
   OPENSHELL_INSTALL_URL  Override the OpenShell install script URL
   OPENSHELL_VERSION      Override the OpenShell version to install (default: ${OPENSHELL_VERSION})
 EOF_USAGE

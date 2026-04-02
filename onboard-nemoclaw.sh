@@ -5,9 +5,17 @@ set -Eeuo pipefail
 # Assumes setup-jetson-orin.sh has already been run.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/lib/component-versions.sh}"
+[[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
+  printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+source "$COMPONENT_VERSIONS_PATH"
+
 ENV_FILE="${ENV_FILE:-$HOME/.config/openshell/jetson-orin.env}"
-PATCHED_IMAGE_NAME_DEFAULT="openshell-cluster:patched-0.0.16"
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-patched}"
+PATCHED_IMAGE_NAME_DEFAULT="${PATCHED_IMAGE_NAME_DEFAULT:-openshell-cluster:patched-${OPEN_SHELL_VERSION_PIN}}"
+DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-jetson}"
 FREE_PORT_CHECK_ONLY="${FREE_PORT_CHECK_ONLY:-false}"
 STOP_HOST_K3S="${STOP_HOST_K3S:-true}"
 REQUIRE_NODE_MAJOR="${REQUIRE_NODE_MAJOR:-22}"
@@ -112,8 +120,8 @@ check_openshell_image_override() {
 
 verify_cluster_image_networking() {
   log "Verifying cluster image networking compatibility"
-  docker run --rm --entrypoint sh "$OPENSHELL_CLUSTER_IMAGE" -lc 'iptables --version' | grep -q '(legacy)' || \
-    die "Patched OpenShell cluster image is not using legacy iptables: $OPENSHELL_CLUSTER_IMAGE"
+  docker run --rm --entrypoint sh "$OPENSHELL_CLUSTER_IMAGE" -lc 'iptables --version' || \
+    die "Could not inspect iptables inside OpenShell cluster image: $OPENSHELL_CLUSTER_IMAGE"
 }
 
 ensure_patched_gateway_running() {

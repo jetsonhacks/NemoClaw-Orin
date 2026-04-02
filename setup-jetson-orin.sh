@@ -19,20 +19,28 @@ set -Eeuo pipefail
 # Keep the heavier onboarding phase separate so failures are easier to debug.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/lib/component-versions.sh}"
+[[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
+  printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
+  exit 1
+}
+# shellcheck disable=SC1090
+source "$COMPONENT_VERSIONS_PATH"
+
 INSTALL_NODEJS_SCRIPT="${INSTALL_NODEJS_SCRIPT:-$SCRIPT_DIR/lib/install-nodejs.sh}"
 INSTALL_OPENSHELL_SCRIPT="${INSTALL_OPENSHELL_SCRIPT:-$SCRIPT_DIR/lib/install-openshell-cli.sh}"
 INSTALL_NEMOCLAW_SCRIPT="${INSTALL_NEMOCLAW_SCRIPT:-$SCRIPT_DIR/lib/install-nemoclaw-cli.sh}"
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-patched}"
+DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-jetson}"
 UPDATE_CHECKER_PATH="${UPDATE_CHECKER_PATH:-$SCRIPT_DIR/lib/check-openshell-cluster-update.sh}"
 HOST_PREREQS_SCRIPT="${HOST_PREREQS_SCRIPT:-$SCRIPT_DIR/lib/setup-openshell-host-prereqs.sh}"
 PATCHED_IMAGE_NAME_PREFIX="${PATCHED_IMAGE_NAME_PREFIX:-openshell-cluster:patched}"
 ENV_FILE="${ENV_FILE:-$HOME/.config/openshell/jetson-orin.env}"
-DEFAULT_CLUSTER_VERSION="${DEFAULT_CLUSTER_VERSION:-0.0.16}"
+DEFAULT_CLUSTER_VERSION="${DEFAULT_CLUSTER_VERSION:-$OPEN_SHELL_VERSION_PIN}"
 DISCOVER_LATEST_CLUSTER_VERSION="${DISCOVER_LATEST_CLUSTER_VERSION:-false}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 OPENSHELL_INSTALL_URL="${OPENSHELL_INSTALL_URL:-https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh}"
-OPENSHELL_VERSION="${OPENSHELL_VERSION:-v0.0.16}"
-NEMOCLAW_CLONE_URL="${NEMOCLAW_CLONE_URL:-https://github.com/NVIDIA/NemoClaw.git}"
+OPENSHELL_VERSION="${OPENSHELL_VERSION:-$OPEN_SHELL_CLI_VERSION_PIN}"
+NEMOCLAW_CLONE_URL="${NEMOCLAW_CLONE_URL:-$NEMOCLAW_REPO_URL}"
 OPENSHELL_CLUSTER_VERSION=""
 PATCHED_IMAGE_NAME=""
 
@@ -51,14 +59,16 @@ Environment overrides:
   INSTALL_OPENSHELL_SCRIPT=/path      Override path to install-openshell-cli.sh
   INSTALL_NEMOCLAW_SCRIPT=/path       Override path to install-nemoclaw-cli.sh
   HOST_PREREQS_SCRIPT=/path           Override path to host-prereqs helper
+  COMPONENT_VERSIONS_PATH=/path       Override path to component-versions.sh
   PATCHED_IMAGE_NAME_PREFIX=name:tag  Override local patched image tag prefix
   DEFAULT_CLUSTER_VERSION=x.y.z       Pinned cluster version to patch (default: ${DEFAULT_CLUSTER_VERSION})
   DISCOVER_LATEST_CLUSTER_VERSION=false
                                      When true, query GitHub releases and override DEFAULT_CLUSTER_VERSION
   NODE_MAJOR=22                       Node.js major line (passed to install-nodejs.sh)
   OPENSHELL_INSTALL_URL=https://...   OpenShell install script URL (passed to install-openshell-cli.sh)
-  OPENSHELL_VERSION=v0.0.16           OpenShell version (passed to install-openshell-cli.sh)
+  OPENSHELL_VERSION=v0.0.20           OpenShell version (passed to install-openshell-cli.sh)
   NEMOCLAW_CLONE_URL=https://...      NemoClaw git repository URL (passed to install-nemoclaw-cli.sh)
+  NEMOCLAW_GIT_REF=<ref>|latest       NemoClaw git ref (passed to install-nemoclaw-cli.sh)
 EOF_USAGE
 }
 
@@ -102,6 +112,7 @@ install_tools() {
   ensure_local_bin_on_path
 
   NEMOCLAW_CLONE_URL="$NEMOCLAW_CLONE_URL" \
+  NEMOCLAW_GIT_REF="$NEMOCLAW_GIT_REF" \
     bash "$INSTALL_NEMOCLAW_SCRIPT"
   # Pick up npm bin and ~/.local/bin in this shell after the subshell install
   ensure_npm_bin_on_path
@@ -164,8 +175,8 @@ build_patched_cluster_image() {
 
 verify_patched_cluster_image() {
   log "Verifying patched OpenShell cluster image"
-  docker run --rm --entrypoint sh "$PATCHED_IMAGE_NAME" -lc 'iptables --version' | grep -q '(legacy)' || \
-    die "Patched OpenShell cluster image is not using legacy iptables: $PATCHED_IMAGE_NAME"
+  docker run --rm --entrypoint sh "$PATCHED_IMAGE_NAME" -lc 'iptables --version' || \
+    die "Could not inspect iptables inside patched OpenShell cluster image: $PATCHED_IMAGE_NAME"
 }
 
 write_env_file() {

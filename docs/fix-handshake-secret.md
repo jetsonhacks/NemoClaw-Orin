@@ -98,7 +98,7 @@ docker exec openshell-cluster-nemoclaw kubectl logs -n openshell openshell-0 | g
 
 ## The Fix
 
-The fix is in `Dockerfile.openshell-cluster-patched`, applied at image build
+The fix is in `Dockerfile.openshell-cluster-jetson`, applied at image build
 time by `patch-entrypoint.sh`. It rewrites the relevant section of
 `cluster-entrypoint.sh` to:
 
@@ -144,7 +144,7 @@ source ~/.config/openshell/jetson-orin.env
 docker build \
   --build-arg CLUSTER_VERSION=0.0.13 \
   -t "$OPENSHELL_CLUSTER_IMAGE" \
-  -f ~/NemoClaw-Orin/image/Dockerfile.openshell-cluster-patched \
+  -f ~/NemoClaw-Orin/image/Dockerfile.openshell-cluster-jetson \
   ~/NemoClaw-Orin/
 
 # Re-onboard once to initialize the secret file on first start
@@ -194,7 +194,7 @@ secrets matched.
 
 This is a bug in OpenShell's `cluster-entrypoint.sh`. The fix should be applied
 upstream so that the secret is persisted to the k3s volume by default. Until
-that happens, the local patch in `Dockerfile.openshell-cluster-patched` and
+that happens, the local patch in `Dockerfile.openshell-cluster-jetson` and
 `patch-entrypoint.sh` is the workaround.
 
 When upgrading OpenShell to a new version, verify that the `patch-entrypoint.sh`

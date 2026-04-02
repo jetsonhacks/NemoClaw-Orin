@@ -53,3 +53,28 @@ nemoclaw <sandbox-name> connect
 ```
 
 Avoid using `openshell gateway start --recreate` for normal reboot recovery. Recreating the gateway is a destructive recovery action.
+
+## Gateway cluster DNS looks broken
+
+If the gateway container is running but pods cannot resolve DNS, CoreDNS may be
+forwarding to a loopback resolver that is not reachable from inside k3s.
+
+Start by checking the gateway container and cluster pods:
+
+```bash
+docker ps --format '{{.Names}}' | grep '^openshell-cluster-' || true
+docker exec openshell-cluster-nemoclaw kubectl get pods -A
+```
+
+If CoreDNS is failing or restarting, apply the local CoreDNS fix and wait for
+the rollout to complete:
+
+```bash
+./lib/fix-coredns.sh
+```
+
+If you need to force a specific upstream resolver:
+
+```bash
+./lib/fix-coredns.sh --upstream 1.1.1.1
+```

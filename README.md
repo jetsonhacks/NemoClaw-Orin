@@ -226,6 +226,13 @@ Most users only need the scripts in the repository root. The `lib/` scripts are 
 
 ## Releases
 
+### v0.0.2 April, 2026
+
+* Tested on Jetson AGX Orin, Orin Nano
+* Added SSH handshake persistence so that sessions can be restarted more easily
+* OpenShell fixes iptable issue on v0.0.19+
+* OpenShell writes image incrementally during onboarding, relieving memory pressure on Orin Nano
+
 ### Initial Release March, 2026
 
 * tested on Jetson Orin Nano
