@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT_DIR/lib/script-ui.sh"
 
 UPSTREAM_DNS="${UPSTREAM_DNS:-}"
@@ -9,9 +9,9 @@ UPSTREAM_DNS="${UPSTREAM_DNS:-}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./lib/fix-coredns.sh
-  ./lib/fix-coredns.sh <gateway-name>
-  ./lib/fix-coredns.sh --upstream 1.1.1.1
+  ./lib/maintenance/fix-coredns.sh
+  ./lib/maintenance/fix-coredns.sh <gateway-name>
+  ./lib/maintenance/fix-coredns.sh --upstream 1.1.1.1
 
 Flags:
   --upstream <ip>            Override the detected upstream DNS server

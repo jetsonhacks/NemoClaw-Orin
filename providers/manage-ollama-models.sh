@@ -302,22 +302,31 @@ prompt_for_model_name() {
 
 pull_model() {
   log "Pulling model: $MODEL_NAME"
-  curl --silent --show-error --fail \
-    -H 'Content-Type: application/json' \
-    -d "{\"model\":\"$MODEL_NAME\",\"stream\":true}" \
-    "$OLLAMA_PULL_URL" | python3 - <<'PY'
+  MODEL_NAME="$MODEL_NAME" OLLAMA_PULL_URL="$OLLAMA_PULL_URL" python3 - <<'PY'
 import json
-import sys
+import os
+import urllib.error
+import urllib.request
 
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        obj = json.loads(line)
-    except Exception:
-        print(line)
-        continue
+model_name = os.environ["MODEL_NAME"]
+pull_url = os.environ["OLLAMA_PULL_URL"]
+payload = json.dumps({"model": model_name, "stream": True}).encode("utf-8")
+
+request = urllib.request.Request(
+    pull_url,
+    data=payload,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+
+
+def print_status(obj):
+    if not isinstance(obj, dict):
+        print(obj)
+        return
+
+    if obj.get("error"):
+        raise RuntimeError(str(obj["error"]))
 
     status = obj.get("status")
     total = obj.get("total")
@@ -330,6 +339,39 @@ for line in sys.stdin:
         print(status)
     else:
         print(obj)
+
+
+def emit_stream(response):
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            print(line)
+            continue
+        print_status(obj)
+
+
+try:
+    with urllib.request.urlopen(request) as response:
+        emit_stream(response)
+except urllib.error.HTTPError as exc:
+    body = exc.read().decode("utf-8", errors="replace").strip()
+    if body:
+        try:
+            obj = json.loads(body)
+        except Exception:
+            raise SystemExit(f"Ollama returned HTTP {exc.code}: {body}")
+        if isinstance(obj, dict) and obj.get("error"):
+            raise SystemExit(f"Ollama returned HTTP {exc.code}: {obj['error']}")
+    raise SystemExit(f"Ollama returned HTTP {exc.code} while pulling model: {model_name}")
+except urllib.error.URLError as exc:
+    reason = getattr(exc, "reason", exc)
+    raise SystemExit(f"Cannot reach Ollama pull endpoint at {pull_url}: {reason}")
+except RuntimeError as exc:
+    raise SystemExit(f"Ollama reported an error while pulling {model_name}: {exc}")
 PY
 }
 

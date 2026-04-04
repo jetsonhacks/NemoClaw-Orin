@@ -12,7 +12,7 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $
 usage() {
   cat <<'EOF_USAGE'
 Usage:
-  ./install-nodejs.sh
+  ./lib/bootstrap/install-nodejs.sh
 
 Environment overrides:
   NODE_MAJOR=22              Node.js major line to install from NodeSource

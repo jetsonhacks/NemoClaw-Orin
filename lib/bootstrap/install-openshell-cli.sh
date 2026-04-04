@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/component-versions.sh}"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/../component-versions.sh}"
 [[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
   printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
   exit 1
@@ -20,7 +20,7 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $
 usage() {
   cat <<EOF_USAGE
 Usage:
-  ./install-openshell-cli.sh
+  ./lib/bootstrap/install-openshell-cli.sh
 
 Environment:
   COMPONENT_VERSIONS_PATH Override path to component-versions.sh

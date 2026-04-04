@@ -14,14 +14,14 @@ set -Eeuo pipefail
 # Safe to run multiple times — skips the install if nemoclaw is already on PATH.
 #
 # Usage:
-#   ./install-nemoclaw-cli.sh
+#   ./lib/bootstrap/install-nemoclaw-cli.sh
 #
 # Optional environment overrides:
 #   NEMOCLAW_CLONE_URL=https://...   Override the NemoClaw git repository URL
 #   NEMOCLAW_GIT_REF=<ref>|latest    Override the NemoClaw git ref selection
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/component-versions.sh}"
+COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/../component-versions.sh}"
 [[ -f "$COMPONENT_VERSIONS_PATH" ]] || {
   printf '\n[ERROR] Missing component versions file: %s\n' "$COMPONENT_VERSIONS_PATH" >&2
   exit 1
@@ -40,7 +40,7 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $
 usage() {
   cat <<EOF_USAGE
 Usage:
-  ./install-nemoclaw-cli.sh
+  ./lib/bootstrap/install-nemoclaw-cli.sh
 
 Environment:
   COMPONENT_VERSIONS_PATH Override path to component-versions.sh

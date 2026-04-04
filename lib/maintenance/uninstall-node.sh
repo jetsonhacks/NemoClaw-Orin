@@ -16,7 +16,7 @@ set -euo pipefail
 #   - Any other system packages
 #
 # Usage:
-#   ./uninstall-node.sh
+#   ./lib/maintenance/uninstall-node.sh
 
 NEMOCLAW_CLONE_DIR="${NEMOCLAW_CLONE_DIR:-$HOME/NemoClaw}"
 BASHRC="${BASHRC:-$HOME/.bashrc}"

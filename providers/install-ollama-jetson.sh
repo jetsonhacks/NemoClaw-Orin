@@ -200,10 +200,10 @@ step_check_docker() {
   fi
   echo ""
 
-  DOCKER_INSTALLER="${SCRIPT_DIR}/install-docker-jetson.sh"
+  DOCKER_INSTALLER="${SCRIPT_DIR}/../lib/bootstrap/install-docker-jetson.sh"
 
   if [[ ! -x "${DOCKER_INSTALLER}" ]]; then
-    die "install-docker-jetson.sh not found or not executable at ${DOCKER_INSTALLER}. Run it manually first, or ensure it is in the same directory as this script."
+    die "install-docker-jetson.sh not found or not executable at ${DOCKER_INSTALLER}. Run it manually first, or ensure the repository bootstrap helper is present."
   fi
 
   echo "  install-docker-jetson.sh will now run to install Docker and the NVIDIA runtime."

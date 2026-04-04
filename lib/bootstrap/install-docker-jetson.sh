@@ -18,7 +18,7 @@
 #   - Change any existing Docker daemon settings beyond the NVIDIA runtime
 #
 # Usage:
-#   ./install-docker-jetson.sh
+#   ./lib/bootstrap/install-docker-jetson.sh
 #
 # Optional environment overrides:
 #   FORCE_REINSTALL=false           Reinstall even if already present

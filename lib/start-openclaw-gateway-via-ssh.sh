@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 source "$ROOT_DIR/lib/script-ui.sh"
 source "$ROOT_DIR/lib/sandbox-kexec.sh"
+source "$ROOT_DIR/lib/openclaw-user-path.sh"
 
 RESTART_SCRIPT="${RESTART_SCRIPT:-$ROOT_DIR/restart-nemoclaw.sh}"
 
@@ -101,43 +102,6 @@ debug_stderr() {
   fi
 }
 
-sandbox_ssh_command() {
-  local sandbox_name="$1"
-  shift
-  local cmd="$*"
-  local openshell_bin
-  openshell_bin="$(command -v openshell)"
-  ssh \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o LogLevel=ERROR \
-    -o "ProxyCommand=${openshell_bin} ssh-proxy --gateway-name ${GATEWAY_NAME} --name ${sandbox_name}" \
-    "sandbox@openshell-${sandbox_name}" \
-    "${cmd}"
-}
-
-ssh_env_prefix() {
-  cat <<'EOF'
-export HOME=/sandbox;
-EOF
-}
-
-capture_command() {
-  local __outvar="$1"
-  shift
-
-  local output=""
-  local rc=0
-
-  set +e
-  output="$("$@" 2>&1)"
-  rc=$?
-  set -e
-
-  printf -v "$__outvar" '%s' "$output"
-  return "$rc"
-}
-
 wait_for_sandbox_ready() {
   local elapsed=0
   local interval=5
@@ -167,8 +131,8 @@ fix_ownership_host_side() {
 show_ssh_runtime_debug() {
   local output=""
   set +e
-  output="$(sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
+  output="$(openclaw_sandbox_ssh_command "$SANDBOX_NAME" "
+    $(openclaw_ssh_env_prefix)
     echo '--- id / pwd / home ---'
     id || true
     pwd || true
@@ -204,8 +168,8 @@ show_ssh_runtime_debug() {
 }
 
 stop_old_gateway_in_ssh_context() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
+  openclaw_sandbox_ssh_command "$SANDBOX_NAME" "
+    $(openclaw_ssh_env_prefix)
     self_pid=\$$
     parent_pid=\$PPID
 
@@ -238,8 +202,8 @@ stop_old_gateway_in_ssh_context() {
 }
 
 start_gateway_in_ssh_context() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
+  openclaw_sandbox_ssh_command "$SANDBOX_NAME" "
+    $(openclaw_ssh_env_prefix)
     mkdir -p /tmp/openclaw /sandbox/.openclaw/cron /sandbox/.openclaw-data/cron
     [ -f /sandbox/.openclaw/cron/jobs.json ] || printf '{}\n' > /sandbox/.openclaw/cron/jobs.json
     [ -f /sandbox/.openclaw-data/cron/jobs.json ] || printf '{}\n' > /sandbox/.openclaw-data/cron/jobs.json
@@ -250,26 +214,6 @@ start_gateway_in_ssh_context() {
     sleep 2
     echo START_DONE
   "
-}
-
-ssh_runtime_listening() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
-    grep -qi ':$(printf '%04X' "$RUNTIME_PORT")' /proc/net/tcp /proc/net/tcp6
-  " >/dev/null 2>&1
-}
-
-probe_gateway_in_ssh_context() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
-    openclaw gateway health
-  " 2>&1
-}
-
-health_probe_is_expected_prepair() {
-  local probe_output="$1"
-  printf '%s\n' "$probe_output" | grep -Eiq \
-    'pair(ing)? required|not paired|unauthori[sz]ed|forbidden|auth(entication|orization)?.*required|pending'
 }
 
 emit_text_result() {
@@ -369,6 +313,7 @@ main() {
   need_cmd openshell
   need_cmd ssh
   need_cmd grep
+  need_cmd python3
 
   if [[ "$SKIP_RESTART" != "true" ]]; then
     [[ -x "$RESTART_SCRIPT" ]] || die "Restart script not found or not executable: $RESTART_SCRIPT"
@@ -395,10 +340,31 @@ main() {
   debug_stderr "Listener timeout: ${START_TIMEOUT}s"
   debug_stderr "Pod ready timeout: ${POD_READY_TIMEOUT}s"
 
+  local verify_json=""
+  if verify_json="$("$ROOT_DIR/lib/verify-openclaw-user-path.sh" "$SANDBOX_NAME" --format json --quiet 2>/dev/null)"; then
+    local already_ready=""
+    already_ready="$(python3 - <<'PY' "$verify_json"
+import json, sys
+data = json.loads(sys.argv[1])
+print("true" if data.get("user_path_ready") else "false")
+PY
+)"
+    if [[ "$already_ready" == "true" ]]; then
+      if [[ "$FORMAT" == "json" ]]; then
+        printf '%s\n' "$verify_json"
+      else
+        echo "User-facing recovery path is already ready"
+        echo "OpenClaw listener is up in the user-facing context"
+        echo "Gateway health probe succeeded"
+      fi
+      exit 0
+    fi
+  fi
+
   fix_ownership_host_side
 
   local stop_output=""
-  if ! capture_command stop_output stop_old_gateway_in_ssh_context; then
+  if ! openclaw_capture_command stop_output stop_old_gateway_in_ssh_context; then
     [[ -n "$stop_output" ]] && printf '%s\n' "$stop_output" >&2
     if [[ "$DEBUG" == "true" ]]; then
       debug_stderr "Stale gateway cleanup did not complete; continuing with a fresh gateway start."
@@ -406,7 +372,7 @@ main() {
   fi
 
   local start_output=""
-  if ! capture_command start_output start_gateway_in_ssh_context; then
+  if ! openclaw_capture_command start_output start_gateway_in_ssh_context; then
     emit_failure_and_debug "ssh_start_failed" "$start_output"
   fi
 
@@ -415,7 +381,7 @@ main() {
   local listener_up="false"
 
   while [[ $elapsed -lt $START_TIMEOUT ]]; do
-    if ssh_runtime_listening; then
+    if openclaw_ssh_runtime_listening "$SANDBOX_NAME" "$RUNTIME_PORT"; then
       listener_up="true"
       break
     fi
@@ -431,9 +397,9 @@ main() {
   local health_state="healthy"
   local pairing_repair_required="false"
 
-  probe_output="$(probe_gateway_in_ssh_context || true)"
+  probe_output="$(openclaw_probe_gateway_health "$SANDBOX_NAME" || true)"
 
-  if health_probe_is_expected_prepair "$probe_output"; then
+  if openclaw_health_probe_is_expected_prepair "$probe_output"; then
     health_state="prepair_pending"
     pairing_repair_required="true"
   elif [[ -z "$probe_output" ]]; then
@@ -443,7 +409,7 @@ main() {
   fi
 
   sleep 5
-  if ! ssh_runtime_listening; then
+  if ! openclaw_ssh_runtime_listening "$SANDBOX_NAME" "$RUNTIME_PORT"; then
     emit_failure_and_debug "listener_disappeared"
   fi
 

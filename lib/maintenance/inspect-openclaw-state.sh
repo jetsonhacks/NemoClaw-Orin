@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT_DIR/lib/script-ui.sh"
 source "$ROOT_DIR/lib/sandbox-kexec.sh"
 
@@ -20,7 +20,7 @@ PENDING_JSON="/sandbox/.openclaw-data/devices/pending.json"
 usage() {
   cat <<'EOF'
 Usage:
-  lib/inspect-openclaw-state.sh <sandbox-name> [flags]
+  lib/maintenance/inspect-openclaw-state.sh <sandbox-name> [flags]
 
 Flags:
   --phase <name>   Label for the inspection phase (default: unknown)

@@ -33,7 +33,7 @@ die()  { printf '\n[ERROR] %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'EOF_USAGE'
 Usage:
-  ./lib/uninstall-nemoclaw-openshell.sh [options]
+  ./lib/maintenance/uninstall-nemoclaw-openshell.sh [options]
 
 Options:
   --yes       Skip interactive confirmation prompt

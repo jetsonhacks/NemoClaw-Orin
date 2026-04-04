@@ -14,8 +14,7 @@ COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/lib/component-ve
 source "$COMPONENT_VERSIONS_PATH"
 
 ENV_FILE="${ENV_FILE:-$HOME/.config/openshell/jetson-orin.env}"
-PATCHED_IMAGE_NAME_DEFAULT="${PATCHED_IMAGE_NAME_DEFAULT:-openshell-cluster:patched-${OPEN_SHELL_VERSION_PIN}}"
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-jetson}"
+OPEN_SHELL_CLUSTER_IMAGE_DEFAULT="${OPEN_SHELL_CLUSTER_IMAGE_DEFAULT:-ghcr.io/nvidia/openshell/cluster:${OPEN_SHELL_VERSION_PIN}}"
 FREE_PORT_CHECK_ONLY="${FREE_PORT_CHECK_ONLY:-false}"
 STOP_HOST_K3S="${STOP_HOST_K3S:-true}"
 REQUIRE_NODE_MAJOR="${REQUIRE_NODE_MAJOR:-22}"
@@ -48,7 +47,7 @@ source_env_file() {
     source "$ENV_FILE"
   fi
 
-  export OPENSHELL_CLUSTER_IMAGE="${OPENSHELL_CLUSTER_IMAGE:-$PATCHED_IMAGE_NAME_DEFAULT}"
+  export OPENSHELL_CLUSTER_IMAGE="${OPENSHELL_CLUSTER_IMAGE:-$OPEN_SHELL_CLUSTER_IMAGE_DEFAULT}"
 }
 
 check_tooling() {
@@ -96,9 +95,6 @@ maybe_stop_host_k3s() {
 free_conflicting_ports() {
   log "Cleaning up any previous NemoClaw/OpenShell session"
   openshell forward stop 18789 2>/dev/null || true
-  # Use stop rather than destroy to preserve the locally-built cluster image.
-  # openshell gateway destroy removes the image from Docker's store, which
-  # causes the next onboarding run to fail with "image not found locally".
   openshell gateway stop -g nemoclaw 2>/dev/null || true
   openshell gateway stop -g openshell 2>/dev/null || true
 
@@ -112,10 +108,12 @@ free_conflicting_ports() {
   fi
 }
 
-check_openshell_image_override() {
-  log "Using OpenShell cluster image override"
+check_openshell_image() {
+  log "Using OpenShell cluster image"
   printf 'OPENSHELL_CLUSTER_IMAGE=%s\n' "$OPENSHELL_CLUSTER_IMAGE"
-  docker image inspect "$OPENSHELL_CLUSTER_IMAGE" >/dev/null 2>&1 || die "OpenShell cluster image not found locally: $OPENSHELL_CLUSTER_IMAGE"
+  docker image inspect "$OPENSHELL_CLUSTER_IMAGE" >/dev/null 2>&1 || \
+    docker pull "$OPENSHELL_CLUSTER_IMAGE" >/dev/null || \
+    die "OpenShell cluster image is not available: $OPENSHELL_CLUSTER_IMAGE"
 }
 
 verify_cluster_image_networking() {
@@ -124,39 +122,18 @@ verify_cluster_image_networking() {
     die "Could not inspect iptables inside OpenShell cluster image: $OPENSHELL_CLUSTER_IMAGE"
 }
 
-ensure_patched_gateway_running() {
+ensure_gateway_running() {
   if gateway_is_healthy; then
     log "Reusing existing healthy OpenShell gateway"
     openshell gateway select nemoclaw >/dev/null 2>&1 || true
     return 0
   fi
 
-  log "Starting OpenShell gateway with patched image"
+  log "Starting OpenShell gateway"
   OPENSHELL_CLUSTER_IMAGE="$OPENSHELL_CLUSTER_IMAGE" openshell gateway start --name nemoclaw
 
   log "Selecting OpenShell gateway"
   openshell gateway select nemoclaw
-}
-
-rebuild_cluster_image() {
-  # nemoclaw onboard's preflight may call openshell gateway destroy, which
-  # removes locally-built images from Docker's store. Rebuilding immediately
-  # before handing off to nemoclaw onboard ensures the image is always present
-  # when the gateway start is attempted. The build is fast from Docker cache.
-  [[ -f "$DOCKERFILE_PATH" ]] || die "Dockerfile not found: $DOCKERFILE_PATH"
-
-  # Extract the version from the image tag, e.g. openshell-cluster:patched-0.0.16 -> 0.0.16
-  local cluster_version
-  cluster_version="${OPENSHELL_CLUSTER_IMAGE##*-}"
-  [[ -n "$cluster_version" ]] || die "Could not extract cluster version from OPENSHELL_CLUSTER_IMAGE=$OPENSHELL_CLUSTER_IMAGE"
-
-  log "Rebuilding cluster image before onboarding: $OPENSHELL_CLUSTER_IMAGE"
-  # Build context is the image/ directory so COPY patch-entrypoint.sh resolves correctly.
-  docker build \
-    --build-arg "CLUSTER_VERSION=$cluster_version" \
-    -t "$OPENSHELL_CLUSTER_IMAGE" \
-    -f "$DOCKERFILE_PATH" \
-    "$(dirname "$DOCKERFILE_PATH")"
 }
 
 run_onboarding() {
@@ -185,10 +162,9 @@ main() {
   show_resource_state
   maybe_stop_host_k3s
   free_conflicting_ports
-  check_openshell_image_override
-  rebuild_cluster_image
+  check_openshell_image
   verify_cluster_image_networking
-  ensure_patched_gateway_running
+  ensure_gateway_running
   print_recovery_hints
   run_onboarding
 }

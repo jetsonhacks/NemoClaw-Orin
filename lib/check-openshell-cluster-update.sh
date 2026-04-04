@@ -53,8 +53,8 @@ extract_version() {
   local image="$1"
   local tag
   tag="${image##*:}"
-  tag="${tag#patched-}"
   # Backward-compatibility with older local tags from previous script versions.
+  tag="${tag#patched-}"
   tag="${tag#jetson-legacy-}"
   tag="${tag#v}"
   printf '%s\n' "$tag"
@@ -75,11 +75,8 @@ if [[ -z "$CURRENT_IMAGE" ]]; then
   warn "OPENSHELL_CLUSTER_IMAGE is not set in the current shell."
   cat <<EOF2
 
-Suggested base image to patch:
+Suggested upstream image:
   ghcr.io/nvidia/openshell/cluster:$latest_tag
-
-Suggested patched local tag:
-  openshell-cluster:patched-$latest_tag
 EOF2
   exit 0
 fi
@@ -89,7 +86,6 @@ if [[ "$current_version" == "$latest_tag" ]]; then
   echo "Pinned image appears up to date with the latest OpenShell release."
 else
   echo "Update available."
-  echo "Suggested new base image: ghcr.io/nvidia/openshell/cluster:$latest_tag"
-  echo "Suggested patched local tag: openshell-cluster:patched-$latest_tag"
-  echo "Rebuild your patched image and update OPENSHELL_CLUSTER_IMAGE."
+  echo "Suggested new image: ghcr.io/nvidia/openshell/cluster:$latest_tag"
+  echo "Update OPENSHELL_CLUSTER_IMAGE to the newer upstream tag."
 fi

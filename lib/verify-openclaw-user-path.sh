@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/lib/script-ui.sh"
+source "$ROOT_DIR/lib/openclaw-user-path.sh"
 
 SANDBOX_NAME=""
 FORMAT="json"
@@ -70,62 +71,6 @@ parse_args() {
   [[ -n "$SANDBOX_NAME" ]] || die "Usage: $0 <sandbox-name>"
 }
 
-sandbox_ssh_command() {
-  local sandbox_name="$1"
-  shift
-  local cmd="$*"
-  local openshell_bin
-  openshell_bin="$(command -v openshell)"
-  ssh \
-    -o StrictHostKeyChecking=no \
-    -o UserKnownHostsFile=/dev/null \
-    -o LogLevel=ERROR \
-    -o "ProxyCommand=${openshell_bin} ssh-proxy --gateway-name ${GATEWAY_NAME} --name ${sandbox_name}" \
-    "sandbox@openshell-${sandbox_name}" \
-    "${cmd}"
-}
-
-ssh_env_prefix() {
-  cat <<'EOF_ENV'
-export HOME=/sandbox;
-EOF_ENV
-}
-
-capture_command() {
-  local __outvar="$1"
-  shift
-
-  local output=""
-  local rc=0
-  set +e
-  output="$("$@" 2>&1)"
-  rc=$?
-  set -e
-
-  printf -v "$__outvar" '%s' "$output"
-  return "$rc"
-}
-
-ssh_runtime_listening() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
-    grep -qi ':$(printf '%04X' "$RUNTIME_PORT")' /proc/net/tcp /proc/net/tcp6
-  " >/dev/null 2>&1
-}
-
-probe_gateway_in_ssh_context() {
-  sandbox_ssh_command "$SANDBOX_NAME" "
-    $(ssh_env_prefix)
-    openclaw gateway health
-  " 2>&1
-}
-
-health_probe_is_expected_prepair() {
-  local probe_output="$1"
-  printf '%s\n' "$probe_output" | grep -Eiq \
-    'pair(ing)? required|not paired|unauthori[sz]ed|forbidden|auth(entication|orization)?.*required|pending'
-}
-
 emit_json_result() {
   local listener_up="$1"
   local gateway_health_reachable="$2"
@@ -188,19 +133,19 @@ main() {
   local health_state="unknown"
   local probe_output=""
 
-  if ssh_runtime_listening; then
+  if openclaw_ssh_runtime_listening "$SANDBOX_NAME" "$RUNTIME_PORT"; then
     listener_up="true"
   else
     health_state="listener_not_up"
   fi
 
   if [[ "$listener_up" == "true" ]]; then
-    if capture_command probe_output probe_gateway_in_ssh_context; then
+    if openclaw_capture_command probe_output openclaw_probe_gateway_health "$SANDBOX_NAME"; then
       gateway_health_reachable="true"
       user_path_ready="true"
       health_state="healthy"
     else
-      if health_probe_is_expected_prepair "$probe_output"; then
+      if openclaw_health_probe_is_expected_prepair "$probe_output"; then
         gateway_health_reachable="true"
         user_path_ready="false"
         health_state="prepair_pending"

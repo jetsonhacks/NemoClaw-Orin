@@ -52,15 +52,18 @@ validation_backend() {
     nvidia)
       printf '%s' "nvidia"
       ;;
-    *)
+    openai)
       case "$BACKEND_HINT" in
-        ollama|vllm|generic)
+        ollama|vllm)
           printf '%s' "$BACKEND_HINT"
           ;;
-        *)
-          printf '%s' "generic"
+        generic|*)
+          printf '%s' "openai-compatible"
           ;;
       esac
+      ;;
+    *)
+      printf '%s' "generic"
       ;;
   esac
 }
@@ -68,7 +71,7 @@ validation_backend() {
 provider_label() {
   case "$(validation_backend)" in
     nvidia)
-      printf '%s' "NVIDIA Integrate"
+      printf '%s' "NVIDIA Endpoints"
       ;;
     ollama)
       printf '%s' "Ollama"
@@ -76,15 +79,11 @@ provider_label() {
     vllm)
       printf '%s' "vLLM"
       ;;
+    openai-compatible)
+      printf '%s' "OpenAI-compatible provider"
+      ;;
     generic)
-      case "$PROVIDER_TYPE" in
-        openai)
-          printf '%s' "OpenAI-compatible provider"
-          ;;
-        *)
-          printf '%s' "provider"
-          ;;
-      esac
+      printf '%s' "provider"
       ;;
   esac
 }
@@ -168,7 +167,7 @@ EOF_USAGE
 resolve_defaults() {
   case "$(validation_backend)" in
     nvidia)
-      [[ -n "$PROVIDER_NAME" ]] || PROVIDER_NAME="nvidia-integrate"
+      [[ -n "$PROVIDER_NAME" ]] || PROVIDER_NAME="nvidia-prod"
       ;;
     ollama)
       [[ -n "$PROVIDER_NAME" ]] || PROVIDER_NAME="ollama-local"
@@ -184,7 +183,7 @@ resolve_defaults() {
         OPENAI_BASE_URL="http://host.openshell.internal:8000/v1"
       fi
       ;;
-    generic)
+    openai-compatible|generic)
       [[ -n "$PROVIDER_NAME" ]] || PROVIDER_NAME="gateway-provider"
       ;;
     *)
@@ -315,10 +314,57 @@ endpoint_probe_url() {
     ollama)
       printf '%s' "${base%/v1}/api/tags"
       ;;
-    nvidia|vllm|generic)
+    nvidia|vllm|openai-compatible|generic)
       printf '%s' "${base%/}/models"
       ;;
   esac
+}
+
+curl_auth_args() {
+  if [[ -n "$OPENAI_API_KEY_VALUE" && "$OPENAI_API_KEY_VALUE" != "empty" ]]; then
+    printf '%s\n' "-H" "Authorization: Bearer $OPENAI_API_KEY_VALUE"
+  fi
+}
+
+check_openai_compatible_endpoint() {
+  local base responses_url chat_url
+  local -a auth_args=()
+
+  if [[ -n "$PROBE_BASE_URL" ]]; then
+    base="$PROBE_BASE_URL"
+  else
+    base="$OPENAI_BASE_URL"
+  fi
+
+  mapfile -t auth_args < <(curl_auth_args)
+  responses_url="${base%/}/responses"
+  chat_url="${base%/}/chat/completions"
+
+  if [[ -z "$MODEL_NAME" ]]; then
+    warn "No model was supplied for OpenAI-compatible endpoint validation; falling back to a catalog check."
+    local probe_url
+    probe_url="$(endpoint_probe_url)"
+    log "Checking $(provider_label) endpoint"
+    curl --silent --show-error --fail "${auth_args[@]}" "$probe_url" >"$TMP_ENDPOINT_JSON" || \
+      die "Cannot reach $(provider_label) endpoint at $probe_url with the current provider settings. Check network reachability from the Jetson host, the base URL, and the API key."
+    return 0
+  fi
+
+  log "Checking $(provider_label) endpoint with a real inference request"
+  if curl --silent --show-error --fail \
+    "${auth_args[@]}" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$MODEL_NAME\",\"input\":\"ping\",\"max_output_tokens\":1}" \
+    "$responses_url" >"$TMP_ENDPOINT_JSON"; then
+    return 0
+  fi
+
+  curl --silent --show-error --fail \
+    "${auth_args[@]}" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$MODEL_NAME\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" \
+    "$chat_url" >"$TMP_ENDPOINT_JSON" || \
+    die "Cannot complete an OpenAI-compatible validation request against $base. Tried /responses and /chat/completions with model '$MODEL_NAME'. Check the base URL, API key, and model name."
 }
 
 check_endpoint() {
@@ -327,21 +373,28 @@ check_endpoint() {
     return 0
   fi
 
-  local probe_url
-  local -a curl_args=(
-    --silent
-    --show-error
-    --fail
-  )
-  probe_url="$(endpoint_probe_url)"
+  case "$(validation_backend)" in
+    openai-compatible)
+      check_openai_compatible_endpoint
+      ;;
+    *)
+      local probe_url
+      local -a curl_args=(
+        --silent
+        --show-error
+        --fail
+      )
+      probe_url="$(endpoint_probe_url)"
 
-  if [[ -n "$OPENAI_API_KEY_VALUE" && "$OPENAI_API_KEY_VALUE" != "empty" ]]; then
-    curl_args+=(-H "Authorization: Bearer $OPENAI_API_KEY_VALUE")
-  fi
+      if [[ -n "$OPENAI_API_KEY_VALUE" && "$OPENAI_API_KEY_VALUE" != "empty" ]]; then
+        curl_args+=(-H "Authorization: Bearer $OPENAI_API_KEY_VALUE")
+      fi
 
-  log "Checking $(provider_label) endpoint"
-  curl "${curl_args[@]}" "$probe_url" >"$TMP_ENDPOINT_JSON" || \
-    die "Cannot reach $(provider_label) endpoint at $probe_url with the current provider settings. Check network reachability from the Jetson host, the base URL, and the API key."
+      log "Checking $(provider_label) endpoint"
+      curl "${curl_args[@]}" "$probe_url" >"$TMP_ENDPOINT_JSON" || \
+        die "Cannot reach $(provider_label) endpoint at $probe_url with the current provider settings. Check network reachability from the Jetson host, the base URL, and the API key."
+      ;;
+  esac
 }
 
 maybe_check_model_presence() {
@@ -364,8 +417,8 @@ maybe_check_model_presence() {
 
   case "$(validation_backend)" in
     nvidia)
-      log "Skipping preflight model catalog check for NVIDIA Integrate"
-      warn "NVIDIA Integrate model validation is deferred to OpenShell activation for provider '$PROVIDER_NAME'."
+      log "Skipping preflight model catalog check for NVIDIA Endpoints"
+      warn "NVIDIA Endpoints model validation is deferred to OpenShell activation for provider '$PROVIDER_NAME'."
       ;;
     ollama)
       log "Checking that the requested model exists in the upstream catalog"
@@ -421,6 +474,9 @@ if model not in models:
     raise SystemExit(f"Model not present in upstream catalog: {model}")
 print(f"Found model in upstream catalog: {model}")
 PY
+      ;;
+    openai-compatible)
+      log "OpenAI-compatible endpoint validation already exercised the requested model"
       ;;
     generic)
       log "Skipping preflight model catalog check for $(provider_label)"

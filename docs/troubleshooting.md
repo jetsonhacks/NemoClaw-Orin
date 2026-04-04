@@ -37,11 +37,11 @@ Connection refused (os error 111)
 
 the most likely cause is that the OpenShell gateway is not currently running.
 
-In the normal case, the correct recovery procedure is to start the gateway and reconnect to the existing NemoClaw sandbox. Do not recreate the gateway unless you are intentionally resetting OpenShell state.
+In the normal case, the correct recovery procedure is to use this repository's recovery helpers to restore the gateway substrate and reconnect to the existing NemoClaw sandbox. Do not recreate the gateway unless you are intentionally resetting OpenShell state.
 
 ```bash
-openshell gateway start
-openshell status
+./restart-nemoclaw.sh
+./recover-sandbox.sh <sandbox-name>
 nemoclaw <sandbox-name> connect
 ```
 
@@ -49,10 +49,11 @@ If you do not remember the sandbox name, list the available sandboxes first:
 
 ```bash
 nemoclaw list
+./recover-sandbox.sh <sandbox-name>
 nemoclaw <sandbox-name> connect
 ```
 
-Avoid using `openshell gateway start --recreate` for normal reboot recovery. Recreating the gateway is a destructive recovery action.
+Avoid using `openshell gateway start` or `openshell gateway start --recreate` for normal reboot recovery. Recreating the gateway is a destructive recovery action, and a plain raw start can create a second gateway named `openshell` and conflict with the existing NemoClaw path.
 
 ## Gateway cluster DNS looks broken
 
@@ -70,11 +71,11 @@ If CoreDNS is failing or restarting, apply the local CoreDNS fix and wait for
 the rollout to complete:
 
 ```bash
-./lib/fix-coredns.sh
+./lib/maintenance/fix-coredns.sh
 ```
 
 If you need to force a specific upstream resolver:
 
 ```bash
-./lib/fix-coredns.sh --upstream 1.1.1.1
+./lib/maintenance/fix-coredns.sh --upstream 1.1.1.1
 ```

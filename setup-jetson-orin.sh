@@ -5,9 +5,7 @@ set -Eeuo pipefail
 # - installing or verifying the required host-side tools
 # - running the reusable host-prereqs helper
 # - verifying Docker / bridge netfilter / host iptables state
-# - selecting the OpenShell cluster version to patch
-# - building a patched OpenShell cluster image with Jetson networking compatibility
-#   and handshake-secret persistence
+# - selecting the OpenShell cluster version to use
 # - writing an environment file that exports OPENSHELL_CLUSTER_IMAGE
 #
 # Tool installation is delegated to standalone scripts:
@@ -27,13 +25,12 @@ COMPONENT_VERSIONS_PATH="${COMPONENT_VERSIONS_PATH:-$SCRIPT_DIR/lib/component-ve
 # shellcheck disable=SC1090
 source "$COMPONENT_VERSIONS_PATH"
 
-INSTALL_NODEJS_SCRIPT="${INSTALL_NODEJS_SCRIPT:-$SCRIPT_DIR/lib/install-nodejs.sh}"
-INSTALL_OPENSHELL_SCRIPT="${INSTALL_OPENSHELL_SCRIPT:-$SCRIPT_DIR/lib/install-openshell-cli.sh}"
-INSTALL_NEMOCLAW_SCRIPT="${INSTALL_NEMOCLAW_SCRIPT:-$SCRIPT_DIR/lib/install-nemoclaw-cli.sh}"
-DOCKERFILE_PATH="${DOCKERFILE_PATH:-$SCRIPT_DIR/image/Dockerfile.openshell-cluster-jetson}"
+INSTALL_NODEJS_SCRIPT="${INSTALL_NODEJS_SCRIPT:-$SCRIPT_DIR/lib/bootstrap/install-nodejs.sh}"
+INSTALL_OPENSHELL_SCRIPT="${INSTALL_OPENSHELL_SCRIPT:-$SCRIPT_DIR/lib/bootstrap/install-openshell-cli.sh}"
+INSTALL_NEMOCLAW_SCRIPT="${INSTALL_NEMOCLAW_SCRIPT:-$SCRIPT_DIR/lib/bootstrap/install-nemoclaw-cli.sh}"
 UPDATE_CHECKER_PATH="${UPDATE_CHECKER_PATH:-$SCRIPT_DIR/lib/check-openshell-cluster-update.sh}"
-HOST_PREREQS_SCRIPT="${HOST_PREREQS_SCRIPT:-$SCRIPT_DIR/lib/setup-openshell-host-prereqs.sh}"
-PATCHED_IMAGE_NAME_PREFIX="${PATCHED_IMAGE_NAME_PREFIX:-openshell-cluster:patched}"
+HOST_PREREQS_SCRIPT="${HOST_PREREQS_SCRIPT:-$SCRIPT_DIR/lib/bootstrap/setup-openshell-host-prereqs.sh}"
+OPENSHELL_CLUSTER_IMAGE_REPO="${OPENSHELL_CLUSTER_IMAGE_REPO:-ghcr.io/nvidia/openshell/cluster}"
 ENV_FILE="${ENV_FILE:-$HOME/.config/openshell/jetson-orin.env}"
 DEFAULT_CLUSTER_VERSION="${DEFAULT_CLUSTER_VERSION:-$OPEN_SHELL_VERSION_PIN}"
 DISCOVER_LATEST_CLUSTER_VERSION="${DISCOVER_LATEST_CLUSTER_VERSION:-false}"
@@ -42,7 +39,7 @@ OPENSHELL_INSTALL_URL="${OPENSHELL_INSTALL_URL:-https://raw.githubusercontent.co
 OPENSHELL_VERSION="${OPENSHELL_VERSION:-$OPEN_SHELL_CLI_VERSION_PIN}"
 NEMOCLAW_CLONE_URL="${NEMOCLAW_CLONE_URL:-$NEMOCLAW_REPO_URL}"
 OPENSHELL_CLUSTER_VERSION=""
-PATCHED_IMAGE_NAME=""
+OPENSHELL_CLUSTER_IMAGE=""
 
 log()      { printf '\n==> %s\n' "$*"; }
 warn()     { printf '\n[WARN] %s\n' "$*" >&2; }
@@ -60,8 +57,8 @@ Environment overrides:
   INSTALL_NEMOCLAW_SCRIPT=/path       Override path to install-nemoclaw-cli.sh
   HOST_PREREQS_SCRIPT=/path           Override path to host-prereqs helper
   COMPONENT_VERSIONS_PATH=/path       Override path to component-versions.sh
-  PATCHED_IMAGE_NAME_PREFIX=name:tag  Override local patched image tag prefix
-  DEFAULT_CLUSTER_VERSION=x.y.z       Pinned cluster version to patch (default: ${DEFAULT_CLUSTER_VERSION})
+  OPENSHELL_CLUSTER_IMAGE_REPO=repo   Override the upstream OpenShell cluster image repository
+  DEFAULT_CLUSTER_VERSION=x.y.z       Pinned cluster version to use (default: ${DEFAULT_CLUSTER_VERSION})
   DISCOVER_LATEST_CLUSTER_VERSION=false
                                      When true, query GitHub releases and override DEFAULT_CLUSTER_VERSION
   NODE_MAJOR=22                       Node.js major line (passed to install-nodejs.sh)
@@ -156,27 +153,18 @@ discover_cluster_version() {
   fi
 
   [[ -n "$OPENSHELL_CLUSTER_VERSION" ]] || die "OpenShell cluster version is empty."
-  PATCHED_IMAGE_NAME="${PATCHED_IMAGE_NAME_PREFIX}-${OPENSHELL_CLUSTER_VERSION}"
+  OPENSHELL_CLUSTER_IMAGE="${OPENSHELL_CLUSTER_IMAGE_REPO}:${OPENSHELL_CLUSTER_VERSION}"
 
   printf 'Using upstream OpenShell cluster version: %s\n' "$OPENSHELL_CLUSTER_VERSION"
-  printf 'Will build patched local image: %s\n' "$PATCHED_IMAGE_NAME"
+  printf 'Will use OpenShell cluster image: %s\n' "$OPENSHELL_CLUSTER_IMAGE"
 }
 
-build_patched_cluster_image() {
-  [[ -f "$DOCKERFILE_PATH" ]] || die "Dockerfile not found: $DOCKERFILE_PATH"
-  log "Building patched OpenShell cluster image: $PATCHED_IMAGE_NAME"
-  # Build context is the image/ directory so COPY patch-entrypoint.sh resolves correctly.
-  docker build \
-    --build-arg "CLUSTER_VERSION=$OPENSHELL_CLUSTER_VERSION" \
-    -t "$PATCHED_IMAGE_NAME" \
-    -f "$DOCKERFILE_PATH" \
-    "$(dirname "$DOCKERFILE_PATH")"
-}
-
-verify_patched_cluster_image() {
-  log "Verifying patched OpenShell cluster image"
-  docker run --rm --entrypoint sh "$PATCHED_IMAGE_NAME" -lc 'iptables --version' || \
-    die "Could not inspect iptables inside patched OpenShell cluster image: $PATCHED_IMAGE_NAME"
+verify_cluster_image() {
+  log "Verifying OpenShell cluster image reference"
+  docker image inspect "$OPENSHELL_CLUSTER_IMAGE" >/dev/null 2>&1 || \
+    docker pull "$OPENSHELL_CLUSTER_IMAGE" >/dev/null
+  docker run --rm --entrypoint sh "$OPENSHELL_CLUSTER_IMAGE" -lc 'iptables --version' || \
+    die "Could not inspect iptables inside OpenShell cluster image: $OPENSHELL_CLUSTER_IMAGE"
 }
 
 write_env_file() {
@@ -184,7 +172,8 @@ write_env_file() {
 
   log "Writing OpenShell environment file: $ENV_FILE"
   cat > "$ENV_FILE" <<EOF_ENV
-export OPENSHELL_CLUSTER_IMAGE="$PATCHED_IMAGE_NAME"
+export OPENSHELL_CLUSTER_IMAGE="$OPENSHELL_CLUSTER_IMAGE"
+export OPENSHELL_CLUSTER_VERSION="$OPENSHELL_CLUSTER_VERSION"
 EOF_ENV
 
   # Auto-source the env file in new shells
@@ -207,12 +196,11 @@ main() {
   ensure_docker_running
   verify_host_state
   discover_cluster_version
-  build_patched_cluster_image
-  verify_patched_cluster_image
+  verify_cluster_image
   write_env_file
 
   log "Jetson Orin host setup complete"
-  printf 'Patched cluster image: %s\n' "$PATCHED_IMAGE_NAME"
+  printf 'OpenShell cluster image: %s\n' "$OPENSHELL_CLUSTER_IMAGE"
   printf 'OpenShell env file:    %s\n' "$ENV_FILE"
   printf 'Next steps:\n'
   printf '  source ~/.bashrc\n'

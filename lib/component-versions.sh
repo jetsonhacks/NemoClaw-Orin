@@ -7,13 +7,12 @@
 # - OpenShell has release tags, but NemoClaw currently moves faster and may
 #   need to be pinned by commit SHA.
 # - Treat the OpenShell + NemoClaw combination as one compatibility set.
-# - When changing either pin, also add a row to docs/compatibility-matrix.md.
 
 # Human-readable compatibility set identifier for the current default pins.
-COMPATIBILITY_SET_ID="${COMPATIBILITY_SET_ID:-jetson-orin-2026-04-01-b}"
+COMPATIBILITY_SET_ID="${COMPATIBILITY_SET_ID:-jetson-orin-2026-04-03-v0.0.22-bootstrap}"
 
 # OpenShell cluster and CLI release pins.
-OPEN_SHELL_VERSION_PIN="${OPEN_SHELL_VERSION_PIN:-0.0.20}"
+OPEN_SHELL_VERSION_PIN="${OPEN_SHELL_VERSION_PIN:-0.0.22}"
 OPEN_SHELL_CLI_VERSION_PIN="${OPEN_SHELL_CLI_VERSION_PIN:-v${OPEN_SHELL_VERSION_PIN}}"
 
 # NemoClaw source selection.

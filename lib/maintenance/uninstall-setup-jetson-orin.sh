@@ -57,7 +57,7 @@ run() {
 usage() {
   cat <<'EOF_USAGE'
 Usage:
-  ./uninstall-setup-jetson-orin.sh [options]
+  ./lib/maintenance/uninstall-setup-jetson-orin.sh [options]
 
 Options:
   --yes          Skip interactive confirmation prompt
