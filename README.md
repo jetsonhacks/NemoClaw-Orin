@@ -1,135 +1,76 @@
 # NemoClaw on Jetson Orin
 
-Local helper scripts for running NemoClaw on a Jetson Orin with a pinned OpenShell cluster image.
+Scripts and documentation for running NemoClaw on NVIDIA Jetson Orin systems with OpenShell.
+
+This repository packages the Jetson-specific setup and recovery work that is easy to get wrong when following the upstream tools directly.
 
 See the JetsonHacks article: https://wp.me/p7ZgI9-3Uv
 
-NemoClaw and OpenShell are still moving targets. Expect breakage, and expect these scripts to evolve as the upstream stack changes.
+## Overview
 
-## Why this exists
+This project is for people who want a more reliable NemoClaw workflow on Jetson Orin.
 
-This repository exists to make NemoClaw usable on Jetson Orin without requiring the user to rediscover the same platform-specific issues each time.
+It focuses on:
 
-There are two main jobs here.
+- preparing a Jetson host for OpenShell and NemoClaw
+- installing the required CLIs
+- running onboarding with Jetson-oriented guardrails
+- recovering an existing sandbox after reboot
+- configuring local or alternate inference providers
 
-The first is **day-0 bringup**:
+The default bootstrap target in this repository is OpenShell `v0.0.22`.
 
-* prepare the Jetson host
-* install the required CLIs
-* pin and select an OpenShell cluster image
-* run NemoClaw onboarding in a more controlled way
+## Related Upstream Projects
 
-The second is **day-2 recovery**:
+- OpenShell: https://github.com/NVIDIA/OpenShell
+- NemoClaw: https://github.com/NVIDIA/NemoClaw
 
-* bring the OpenShell gateway substrate back after reboot
-* restore access to an existing sandbox
-* restore the user-facing OpenClaw path for that sandbox
+## Who This Is For
 
-The current bootstrap target is OpenShell `v0.0.22`.
+This repository is useful if you are:
 
-That matters because upstream `v0.0.22` now persists the SSH handshake secret and restores sandbox state across gateway stop/start cycles, so this repository no longer treats a local gateway-image patch as part of the default setup.
+- setting up NemoClaw on a Jetson Orin for the first time
+- trying to avoid repeating Jetson-specific OpenShell setup steps manually
+- recovering an existing NemoClaw sandbox after restart or reboot
+- switching `inference.local` to Ollama, NVIDIA Endpoints, or another compatible provider
 
-OpenShell CLI installation is handled here using the upstream `install.sh` path rather than `uv tool install`, because the current `openshell` Python package wheels are not a good fit for the typical Jetson Ubuntu 22.04 / glibc 2.35 environment.
+## Main Scripts
 
-> [!IMPORTANT]
-> **Do not remove the `~/NemoClaw` repository.** NemoClaw onboarding stages its Docker build context from that directory at runtime. If it is removed, `onboard-nemoclaw.sh` will fail and the sandbox cannot be rebuilt.
+The main operator commands are:
 
-## Quick start
+- `./setup-jetson-orin.sh`
+  Prepare the host, install tools, verify the selected OpenShell image, and write the environment override.
+- `./onboard-nemoclaw.sh`
+  Run NemoClaw onboarding with checks around memory, swap, image availability, and port conflicts.
+- `./restart-nemoclaw.sh`
+  Restore the outer OpenShell gateway substrate after reboot.
+- `./recover-sandbox.sh`
+  Restore the user-facing path for an existing sandbox after reboot.
+- `./forward-openclaw.sh`
+  Ensure, inspect, or stop the browser forward used by OpenClaw.
+
+## Prerequisites
+
+Docker is often already installed as well, but that is not guaranteed on every system.
+
+If Docker is missing, or if the NVIDIA container runtime is not configured correctly for Jetson, use:
 
 ```bash
-./setup-jetson-orin.sh
-source ~/.bashrc
-./onboard-nemoclaw.sh
+./lib/bootstrap/install-docker-jetson.sh
 ```
 
-It takes ~ 12 minutes to build and install the gateway image on a Jetson Orin Nano. 
+After Docker is installed, add your user to the `docker` group so you can run Docker without `sudo`:
 
-> [!WARNING]
-> **Stop Ollama and other large Docker containers before running `onboard-nemoclaw.sh`.**
-> The most memory-intensive step is the sandbox image push into the gateway's k3s store. On smaller Jetson systems, that can collide with other resident workloads and trigger an OOM kill.
->
-> For example, if you are using Docker-managed Ollama:
->
-> ```bash
-> docker stop ollama
-> ```
->
-> If you are using host-managed Ollama instead:
->
-> ```bash
-> sudo systemctl stop ollama
-> ```
->
-> You can restart it after `nemoclaw <sandbox-name> connect` succeeds.
+```bash
+sudo usermod -aG docker "$USER"
+newgrp docker
+```
 
-## What to expect
+If you prefer, you can log out and log back in instead of running `newgrp docker`.
 
-### `setup-jetson-orin.sh`
+`setup-jetson-orin.sh` installs or verifies Node.js, the OpenShell CLI, and the NemoClaw CLI. It also checks the local Docker/OpenShell prerequisites used by the rest of this workflow.
 
-This script prepares the host for OpenShell and NemoClaw on Jetson Orin.
-
-It:
-
-* installs or verifies Node.js and npm
-* installs or verifies the OpenShell CLI
-* installs or verifies the NemoClaw CLI
-* applies the reusable host prerequisite setup
-* verifies Docker and bridge netfilter state
-* discovers the current upstream OpenShell cluster version
-* verifies that the pinned upstream OpenShell cluster image is available locally
-* writes the `OPENSHELL_CLUSTER_IMAGE` environment override so future shells use the intended upstream image automatically
-
-### `onboard-nemoclaw.sh`
-
-This script runs NemoClaw onboarding with extra guardrails around the Jetson environment.
-
-It:
-
-* checks memory and swap state
-* warns when swap is likely too small
-* optionally stops host k3s to reduce memory pressure
-* checks that the selected OpenShell image is available locally
-* checks for port conflicts
-* runs `nemoclaw onboard`
-
-### `restart-nemoclaw.sh`
-
-This script restores the outer OpenShell side of the system after reboot.
-
-It:
-
-* loads the OpenShell environment override
-* ensures the gateway container is running
-* selects the intended gateway
-* waits for the gateway API to become ready
-* waits for the control-plane pod to become ready
-* attempts to start NemoClaw-managed services
-
-### `recover-sandbox.sh`
-
-This script restores the user-facing path for an existing sandbox after reboot.
-
-It:
-
-* restores outer infrastructure unless told to skip it
-* starts the inner OpenClaw gateway through the OpenShell user-facing path
-* verifies whether the user-facing path is already healthy
-* prefers the CLI approval path when available
-* verifies that the user-facing path is healthy again
-
-## Requirements
-
-Before running these scripts, the Jetson should already have:
-
-* Docker available and working
-* Python 3
-* `curl`
-
-Node.js/npm, OpenShell CLI, and NemoClaw CLI are installed by `setup-jetson-orin.sh` if they are missing.
-
-## Using the repository
-
-### Day-0 bringup
+## Quick Start
 
 For a first-time setup:
 
@@ -139,127 +80,116 @@ source ~/.bashrc
 ./onboard-nemoclaw.sh
 ```
 
-After onboarding completes, connect to the sandbox in the normal way:
+After onboarding completes:
 
 ```bash
 nemoclaw <sandbox-name> connect
 openclaw tui
 ```
 
-### Day-2 recovery after reboot
+## Common Workflows
 
-For an existing sandbox after reboot, the normal recovery command is:
+### Recover after reboot
 
 ```bash
 ./recover-sandbox.sh <sandbox-name>
 ```
 
-By default, `recover-sandbox.sh` restores the outer OpenShell infrastructure as part of its recovery process.
-
-If you only want to restore the outer OpenShell gateway substrate, you can run:
+If you only need to restore the outer OpenShell layer:
 
 ```bash
 ./restart-nemoclaw.sh
 ```
 
-When debugging reboot problems, it is often useful to run the more explicit sequence so the outer and inner phases can be inspected separately:
+For a more explicit debug flow:
 
 ```bash
 ./restart-nemoclaw.sh --debug
 ./recover-sandbox.sh <sandbox-name> --skip-outer-restart --debug
 ```
 
-After recovery succeeds, use the normal user-facing workflow:
+## Important Notes
 
-```bash
-nemoclaw <sandbox-name> connect
-openclaw tui
-```
-
-Browser access depends on a host-side forward. Use this helper directly if you
-need to check or restore browser forwarding:
-
-```bash
-./forward-openclaw.sh <sandbox-name>
-```
-
-## Important warning about gateway startup
+> [!IMPORTANT]
+> Do not remove the `~/NemoClaw` clone. NemoClaw stages its Docker build context from that directory during onboarding.
 
 > [!WARNING]
-> **Do not use `openshell gateway start` to resume NemoClaw after a reboot.**
-> That can create a second gateway named `openshell`, conflict on port 8080, and force a more destructive recovery path.
->
-> Use the repo recovery helpers instead:
+> Stop Ollama and other large Docker workloads before running `./onboard-nemoclaw.sh` on smaller Jetson systems. The onboarding path can become memory-heavy during image import and push.
+
+Docker-managed Ollama:
+
+```bash
+docker stop ollama
+```
+
+Host-managed Ollama:
+
+```bash
+sudo systemctl stop ollama
+```
+
+Restart it after `nemoclaw <sandbox-name> connect` succeeds.
+
+> [!WARNING]
+> Do not use raw `openshell gateway start` for normal NemoClaw reboot recovery. Use the repository recovery helper instead:
 >
 > ```bash
-> ./restart-nemoclaw.sh
 > ./recover-sandbox.sh <sandbox-name>
 > ```
 
-## Repository layout
+## Providers
 
-Most users only need the scripts in the repository root. The `lib/` scripts are used automatically by the top-level helpers, and can also be run directly for debugging.
+After onboarding, the scripts under `providers/` can point `inference.local` at:
 
-Use the directories this way:
+- a local Ollama instance
+- a local vLLM server
+- NVIDIA Endpoints
+- another OpenAI-compatible endpoint
 
-* repository root — normal day-0 bringup and day-2 recovery commands
-* `lib/bootstrap/` — install-time and first-run setup helpers
-* `lib/` — active internal helpers that support the main recovery/runtime flow
-* `lib/maintenance/` — occasional maintenance, teardown, and debugging tools that are not part of the standard happy path
+Provider details and examples live in [providers/README_PROVIDERS.md](providers/README_PROVIDERS.md).
 
-### Top-level scripts
+## Repository Structure
 
-* `setup-jetson-orin.sh` — prepare the host, install tools, verify the pinned OpenShell cluster image, and write the environment override
-* `onboard-nemoclaw.sh` — run NemoClaw onboarding with Jetson-oriented checks and guardrails
-* `restart-nemoclaw.sh` — restore the outer OpenShell gateway substrate after reboot
-* `recover-sandbox.sh` — restore the user-facing path for an existing sandbox after reboot
-* `forward-openclaw.sh` — ensure, check, or stop the OpenClaw browser forward
+- `./`
+  Main operator workflows.
+- `lib/bootstrap/`
+  Install-time and first-run helpers.
+- `lib/`
+  Shared runtime and recovery helpers.
+- `lib/maintenance/`
+  Lower-level debugging, teardown, and maintenance tools.
+- `providers/`
+  Inference provider management scripts.
+- `docs/`
+  Supporting references and troubleshooting guides.
 
-### Important helper scripts
+## Documentation
 
-* `lib/start-openclaw-gateway-via-ssh.sh` — start the inner OpenClaw gateway through the OpenShell user-facing path
-* `lib/map-openclaw-cli-approval-target.sh` — map local state to a safe CLI approval target
-* `lib/apply-openclaw-cli-approval.sh` — approve the matching CLI request when safe
-* `lib/verify-openclaw-user-path.sh` — verify that the recovered user-facing path is healthy
+- [docs/scripts.md](docs/scripts.md)
+- [docs/troubleshooting.md](docs/troubleshooting.md)
+- [docs/maintenance.md](docs/maintenance.md)
+- [providers/README_PROVIDERS.md](providers/README_PROVIDERS.md)
 
-### Bootstrap helpers
-
-These live under `lib/bootstrap/` because they are primarily used during installation and host preparation.
-
-* `lib/bootstrap/install-nodejs.sh` — install or verify Node.js and npm
-* `lib/bootstrap/install-openshell-cli.sh` — install or verify the OpenShell CLI
-* `lib/bootstrap/install-nemoclaw-cli.sh` — install or verify the NemoClaw CLI
-* `lib/bootstrap/setup-openshell-host-prereqs.sh` — apply the reusable host prerequisites for Jetson
-* `lib/bootstrap/install-docker-jetson.sh` — install Docker and NVIDIA container runtime on Jetson when needed
-
-### Debugging helpers
-
-These live under `lib/maintenance/` to keep the primary helper surface smaller.
-
-* `lib/maintenance/inspect-openclaw-state.sh` — inspect durable local OpenClaw identity and pairing state during debugging
-* `lib/maintenance/repair-openclaw-operator-pairing.sh` — lower-level pairing repair helper for manual recovery/debugging
-* `lib/maintenance/fix-coredns.sh` — patch CoreDNS when in-cluster DNS is broken
-* `lib/maintenance/uninstall-nemoclaw-openshell.sh` — remove the installed Jetson/OpenShell/NemoClaw stack
-* `lib/maintenance/uninstall-setup-jetson-orin.sh` — remove setup state from this repository’s bootstrap flow
-* `lib/maintenance/uninstall-node.sh` — remove Node.js and linked CLI state
-
-## More details
-
-* [docs/scripts.md](docs/scripts.md)
-* [docs/troubleshooting.md](docs/troubleshooting.md)
-* [docs/maintenance.md](docs/maintenance.md)
-
-## Releases
+## Release Notes
 
 ### v0.0.3 April, 2026
 
-* Tested on Jetson AGX Orin, Orin Nano
-* Bootstrap target moved to OpenShell `v0.0.22`
-* Default setup now uses the upstream cluster image instead of a locally patched one
-* OpenShell now handles SSH handshake persistence upstream
-* OpenShell now persists sandbox state across gateway stop/start cycles
+- tested on Jetson AGX Orin and Orin Nano
+- bootstrap target moved to OpenShell `v0.0.22`
+- default setup now uses the upstream cluster image instead of a locally patched image
+- OpenShell now handles SSH handshake persistence upstream
+- OpenShell now persists sandbox state across gateway stop and start cycles
+
+### v0.0.2 April, 2026
+
+- tested on Jetson AGX Orin and Orin Nano
+- moved to OpenShell `v0.0.20`
 
 ### Initial Release March, 2026
 
-* tested on Jetson Orin Nano
-* NemoClaw and OpenShell are in early development, expect breakage
+- tested on Jetson Orin Nano
+- initial Jetson-oriented NemoClaw bringup and recovery workflow
+
+## Project Status
+
+NemoClaw and OpenShell are evolving quickly. This repository tracks a tested Jetson-oriented workflow, but some upstream behavior may change over time.
