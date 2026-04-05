@@ -4,7 +4,7 @@ Scripts and documentation for running NemoClaw on NVIDIA Jetson Orin systems wit
 
 This repository packages the Jetson-specific setup and recovery work that is easy to get wrong when following the upstream tools directly.
 
-See the JetsonHacks article: https://wp.me/p7ZgI9-3Uv
+See the JetsonHacks article: <https://wp.me/p7ZgI9-3Uv>
 
 ## Overview
 
@@ -17,13 +17,14 @@ It focuses on:
 - running onboarding with Jetson-oriented guardrails
 - recovering an existing sandbox after reboot
 - configuring local or alternate inference providers
+- measuring direct local-model performance with standalone benchmarks
 
 The default bootstrap target in this repository is OpenShell `v0.0.22`.
 
 ## Related Upstream Projects
 
-- OpenShell: https://github.com/NVIDIA/OpenShell
-- NemoClaw: https://github.com/NVIDIA/NemoClaw
+- OpenShell: <https://github.com/NVIDIA/OpenShell>
+- NemoClaw: <https://github.com/NVIDIA/NemoClaw>
 
 ## Who This Is For
 
@@ -83,8 +84,17 @@ source ~/.bashrc
 After onboarding completes:
 
 ```bash
+./providers/configure-gateway-provider.sh --status
 nemoclaw <sandbox-name> connect
 openclaw tui
+```
+
+If `--status` shows that gateway inference is not configured, restore the onboarding selection or pick a local model before opening the UI:
+
+```bash
+openshell inference set --provider <onboarding-provider> --model <onboarding-model> --no-verify
+# or
+./providers/configure-ollama-local.sh --model <model-name>
 ```
 
 ## Common Workflows
@@ -160,6 +170,8 @@ Provider details and examples live in [providers/README_PROVIDERS.md](providers/
   Lower-level debugging, teardown, and maintenance tools.
 - `providers/`
   Inference provider management scripts.
+- `benchmarks/`
+  Standalone direct-provider benchmark helpers.
 - `docs/`
   Supporting references and troubleshooting guides.
 
@@ -168,9 +180,26 @@ Provider details and examples live in [providers/README_PROVIDERS.md](providers/
 - [docs/scripts.md](docs/scripts.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/maintenance.md](docs/maintenance.md)
+- [docs/rca/2026-04-04-nemoclaw-374a847-regression.md](docs/rca/2026-04-04-nemoclaw-374a847-regression.md)
+- [docs/adr/0001-inference-timeout.md](docs/adr/0001-inference-timeout.md)
+- [docs/adr/0002-cli-pairing-auto-approval.md](docs/adr/0002-cli-pairing-auto-approval.md)
 - [providers/README_PROVIDERS.md](providers/README_PROVIDERS.md)
+- [benchmarks/README.md](benchmarks/README.md)
 
 ## Release Notes
+
+### v0.0.4 April, 2026
+
+- add automatic local CLI pairing approval after onboard and recovery
+- re-apply a 120-second OpenShell managed inference timeout during onboard and recovery
+- restore the onboarding-selected provider/model when gateway inference is unset after onboard
+- add direct Ollama benchmark tooling under `benchmarks/`
+- document the regression investigation and local decisions with RCA and ADR records
+
+Tested with:
+
+- OpenShell `v0.0.22`
+- NemoClaw commit `374a847`
 
 ### v0.0.3 April, 2026
 

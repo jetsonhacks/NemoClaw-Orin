@@ -10,6 +10,7 @@ VERBOSE="${VERBOSE:-false}"
 DEBUG="${DEBUG:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 SKIP_OUTER_RESTART="${SKIP_OUTER_RESTART:-false}"
+INFERENCE_TIMEOUT_SECONDS="${INFERENCE_TIMEOUT_SECONDS:-120}"
 
 usage() {
   cat <<'EOF'
@@ -216,7 +217,68 @@ debug_report_success_path() {
   fi
 }
 
-show_next_steps() {
+get_active_provider_and_model() {
+  local inference_output
+  inference_output="$(openshell inference get 2>/dev/null || true)"
+
+  python3 - "$inference_output" <<'PY'
+import re
+import sys
+
+text = sys.argv[1]
+text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
+provider = ''
+model = ''
+capturing = False
+
+for line in text.splitlines():
+    stripped = line.strip()
+    if 'Gateway inference:' in stripped:
+        capturing = True
+        continue
+    if 'System inference:' in stripped and capturing:
+        break
+    if not capturing:
+        continue
+    if stripped.startswith('Provider:'):
+        provider = stripped.split(':', 1)[1].strip()
+    elif stripped.startswith('Model:'):
+        model = stripped.split(':', 1)[1].strip()
+
+print(provider)
+print(model)
+PY
+}
+
+ensure_inference_timeout() {
+  local -a active_pm=()
+  local active_provider active_model
+
+  mapfile -t active_pm < <(get_active_provider_and_model)
+  active_provider="${active_pm[0]:-}"
+  active_model="${active_pm[1]:-}"
+
+  if [[ -z "$active_provider" || -z "$active_model" ]]; then
+    ui_warn "Could not determine active provider/model; skipping inference timeout configuration."
+    return 0
+  fi
+
+  ui_step "Setting inference timeout to ${INFERENCE_TIMEOUT_SECONDS}s"
+  openshell inference set \
+    --timeout "$INFERENCE_TIMEOUT_SECONDS" \
+    --provider "$active_provider" \
+    --model "$active_model" \
+    --no-verify || \
+    ui_warn "Could not set inference timeout. Run manually: openshell inference set --timeout ${INFERENCE_TIMEOUT_SECONDS} --provider ${active_provider} --model ${active_model} --no-verify"
+}
+
+finalize_recovery() {
+  local path_name="$1"
+
+  ensure_inference_timeout
+
+  debug_report_success_path "$path_name"
+
   echo ""
   echo "Recovery complete."
   echo ""
@@ -350,8 +412,7 @@ main() {
       return 1
     }
 
-    debug_report_success_path "already-healthy"
-    show_next_steps
+    finalize_recovery "already-healthy"
     return 0
   fi
 
@@ -453,8 +514,7 @@ main() {
               return 1
             }
 
-            debug_report_success_path "cli"
-            show_next_steps
+            finalize_recovery "cli"
             return 0
           fi
         fi
@@ -502,8 +562,7 @@ main() {
         return 1
       }
 
-      debug_report_success_path "already-paired"
-      show_next_steps
+      finalize_recovery "already-paired"
       return 0
       ;;
     refuse_cli_list_failed|refuse_no_cli_match|refuse_multiple_cli_matches|refuse_cli_missing_request_id)

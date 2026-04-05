@@ -685,6 +685,18 @@ load_onboarding_selection() {
   SKIP_MODEL_CHECK="true"
 }
 
+validate_use_onboarding_preconditions() {
+  if [[ "$USE_ONBOARDING" != "true" ]]; then
+    return 0
+  fi
+
+  if provider_exists; then
+    return 0
+  fi
+
+  die "The onboarding provider '$PROVIDER_NAME' is not currently defined in OpenShell. This restore mode can only re-select an existing provider definition. Re-run onboarding or recreate the provider with explicit settings first."
+}
+
 show_all_providers() {
   printf '\nConfigured gateway providers:\n\n'
   openshell provider list
@@ -787,6 +799,7 @@ main() {
 
   if [[ "$USE_ONBOARDING" == "true" ]]; then
     load_onboarding_selection
+    validate_use_onboarding_preconditions
   fi
 
   if [[ "$STATUS_ONLY" == "true" ]]; then

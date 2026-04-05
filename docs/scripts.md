@@ -1,8 +1,9 @@
 # Scripts
 
-This repository intentionally exposes scripts in four layers:
+This repository intentionally exposes scripts in five layers:
 
 - repository root for normal operator workflows
+- `benchmarks/` for direct performance measurement helpers
 - `lib/bootstrap/` for install-time and first-run setup helpers
 - `lib/` for active recovery/runtime helper scripts
 - `lib/maintenance/` for occasional debugging, teardown, and maintenance tools
@@ -53,6 +54,26 @@ What it does:
 - supports `--stop` to stop the background forward
 - supports `--bind <bind:port>` for alternate bind targets
 - verifies a host listener is present before declaring success
+
+## Benchmark helpers
+
+### `benchmarks/ollama-benchmark.sh`
+
+Benchmarks a model through Ollama's native HTTP API without involving
+NemoClaw or OpenShell.
+
+What it does:
+
+- sends repeated direct `/api/generate` requests to Ollama
+- reports model-loaded state before run 1 when available
+- prints wall-clock, load, prompt-eval, and generation timings per run
+- helps compare first-run versus subsequent-run behavior
+
+What it does not do:
+
+- does not use `inference.local`
+- does not require an OpenShell gateway
+- does not require a NemoClaw sandbox
 
 ## Bootstrap helpers
 

@@ -79,3 +79,65 @@ If you need to force a specific upstream resolver:
 ```bash
 ./lib/maintenance/fix-coredns.sh --upstream 1.1.1.1
 ```
+
+## `openclaw tui` says `Pairing required`
+
+This repository includes a local pairing recovery workflow because pairing
+problems have recurred during Jetson NemoClaw debugging.
+
+Start by capturing current state and checking whether the repo's approval mapper
+can identify a safe request to approve:
+
+```bash
+./tests/test-openclaw-pairing-state.sh <sandbox-name> --label pre-recovery
+./lib/map-openclaw-cli-approval-target.sh <sandbox-name> --format text
+```
+
+If the mapper reports that it is safe to apply, use the helper rather than
+approving requests manually:
+
+```bash
+./lib/apply-openclaw-cli-approval.sh <sandbox-name> --format text
+```
+
+Then verify that the TUI connects and capture a second snapshot for comparison:
+
+```bash
+./tests/test-openclaw-pairing-state.sh <sandbox-name> --label post-recovery
+nemoclaw <sandbox-name> connect
+openclaw tui
+```
+
+If the helper refuses to act, stop and inspect the pairing-state snapshot
+instead of approving arbitrary requests. For the detailed background and known
+failure mode, see the RCA in `docs/rca/2026-04-04-nemoclaw-374a847-regression.md`.
+
+## Web UI returns no response or `openclaw agent` times out
+
+Start by checking whether inference is healthy through the OpenShell gateway:
+
+```bash
+openshell inference get
+./tests/test-openshell-gateway-inference.sh <sandbox-name>
+```
+
+If needed during debugging, retry with a longer probe timeout:
+
+```bash
+./tests/test-openshell-gateway-inference.sh <sandbox-name> --timeout 120
+```
+
+Then check whether agent turns are falling back to the embedded path:
+
+```bash
+openclaw agent --agent main --json -m "Reply with exactly: pong"
+```
+
+If the output mentions `falling back to embedded`, treat the issue as a pairing
+or gateway-path problem before treating it as a pure model-speed problem. In
+this repository's RCA, pairing failure forced the embedded path, and that path
+timed out around 20 seconds on Jetson Orin.
+
+If gateway probing succeeds and pairing is healthy, compare the current timeout
+against the repository ADR baseline in `docs/adr/0001-inference-timeout.md`.
+This checkout expects a 120-second OpenShell inference timeout on Jetson Orin.

@@ -15,7 +15,9 @@ source "$COMPONENT_VERSIONS_PATH"
 
 ENV_FILE="${ENV_FILE:-$HOME/.config/openshell/jetson-orin.env}"
 OPEN_SHELL_CLUSTER_IMAGE_DEFAULT="${OPEN_SHELL_CLUSTER_IMAGE_DEFAULT:-ghcr.io/nvidia/openshell/cluster:${OPEN_SHELL_VERSION_PIN}}"
+ONBOARD_SESSION_PATH="${ONBOARD_SESSION_PATH:-$HOME/.nemoclaw/onboard-session.json}"
 FREE_PORT_CHECK_ONLY="${FREE_PORT_CHECK_ONLY:-false}"
+INFERENCE_TIMEOUT_SECONDS="${INFERENCE_TIMEOUT_SECONDS:-120}"
 STOP_HOST_K3S="${STOP_HOST_K3S:-true}"
 REQUIRE_NODE_MAJOR="${REQUIRE_NODE_MAJOR:-22}"
 MIN_SWAP_GB="${MIN_SWAP_GB:-8}"
@@ -24,6 +26,35 @@ log() { printf '\n==> %s\n' "$*"; }
 warn() { printf '\n[WARN] %s\n' "$*" >&2; }
 die() { printf '\n[ERROR] %s\n' "$*" >&2; exit 1; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
+
+json_get() {
+  local json_input="$1"
+  local expr="$2"
+  JSON_INPUT="$json_input" JSON_EXPR="$expr" python3 - <<'PY'
+import json
+import os
+
+data = json.loads(os.environ["JSON_INPUT"])
+expr = os.environ["JSON_EXPR"]
+
+value = data
+for part in expr.split("."):
+    if isinstance(value, dict):
+        value = value.get(part)
+    else:
+        value = None
+        break
+
+if value is True:
+    print("true")
+elif value is False:
+    print("false")
+elif value is None:
+    print("")
+else:
+    print(value)
+PY
+}
 
 gateway_is_healthy() {
   local status_output named_info active_info
@@ -56,6 +87,8 @@ check_tooling() {
   need_cmd nemoclaw
   need_cmd node
   need_cmd npm
+  need_cmd python3
+  need_cmd ssh
   need_cmd sudo
 
   docker info >/dev/null 2>&1 || die "Docker daemon is not running or not accessible."
@@ -142,6 +175,181 @@ run_onboarding() {
   nemoclaw onboard
 }
 
+get_active_provider_and_model() {
+  local inference_output
+  inference_output="$(openshell inference get 2>/dev/null || true)"
+
+  python3 - "$inference_output" <<'PY'
+import re
+import sys
+
+text = sys.argv[1]
+text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', text)
+provider = ''
+model = ''
+capturing = False
+
+for line in text.splitlines():
+    stripped = line.strip()
+    if 'Gateway inference:' in stripped:
+        capturing = True
+        continue
+    if 'System inference:' in stripped and capturing:
+        break
+    if not capturing:
+        continue
+    if stripped.startswith('Provider:'):
+        provider = stripped.split(':', 1)[1].strip()
+    elif stripped.startswith('Model:'):
+        model = stripped.split(':', 1)[1].strip()
+
+print(provider)
+print(model)
+PY
+}
+
+get_onboarding_provider_and_model() {
+  if [[ ! -f "$ONBOARD_SESSION_PATH" ]]; then
+    return 0
+  fi
+
+  python3 - "$ONBOARD_SESSION_PATH" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+print(data.get('provider') or '')
+print(data.get('model') or '')
+PY
+}
+
+get_onboarding_sandbox_name() {
+  if [[ ! -f "$ONBOARD_SESSION_PATH" ]]; then
+    return 0
+  fi
+
+  python3 - "$ONBOARD_SESSION_PATH" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+
+print(data.get('sandboxName') or '')
+PY
+}
+
+ensure_cli_pairing() {
+  local sandbox_name pairing_json pairing_rc action error_message
+
+  sandbox_name="$(get_onboarding_sandbox_name)"
+  if [[ -z "$sandbox_name" ]]; then
+    warn "Could not determine sandbox name from $ONBOARD_SESSION_PATH; skipping CLI pairing approval."
+    warn "Run manually: ./lib/apply-openclaw-cli-approval.sh <sandbox-name> --format text"
+    return 0
+  fi
+
+  log "Ensuring CLI pairing approval for sandbox '${sandbox_name}'"
+
+  pairing_rc=0
+  pairing_json="$("$SCRIPT_DIR/lib/apply-openclaw-cli-approval.sh" "$sandbox_name" --format json --quiet)" || pairing_rc=$?
+
+  if [[ $pairing_rc -ne 0 ]]; then
+    error_message="$(json_get "$pairing_json" "error" 2>/dev/null || true)"
+    warn "Automatic CLI pairing approval failed for sandbox '${sandbox_name}'."
+    [[ -n "$error_message" ]] && warn "$error_message"
+    warn "Run manually: ./lib/apply-openclaw-cli-approval.sh ${sandbox_name} --format text"
+    return 0
+  fi
+
+  action="$(json_get "$pairing_json" "action" 2>/dev/null || true)"
+  case "$action" in
+    applied_cli_approve_request_id)
+      log "CLI pairing approval applied"
+      ;;
+    noop_already_paired)
+      log "CLI pairing approval not needed"
+      ;;
+    *)
+      warn "Automatic CLI pairing approval did not reach a healthy terminal state (action: ${action:-unknown})."
+      warn "Run manually: ./lib/apply-openclaw-cli-approval.sh ${sandbox_name} --format text"
+      ;;
+  esac
+}
+
+ensure_inference_ready() {
+  local -a active_pm=() onboarding_pm=()
+  local active_provider active_model onboarding_provider onboarding_model
+
+  mapfile -t active_pm < <(get_active_provider_and_model)
+  active_provider="${active_pm[0]:-}"
+  active_model="${active_pm[1]:-}"
+
+  if [[ -n "$active_provider" && -n "$active_model" ]]; then
+    log "Gateway inference is ready"
+    printf 'Provider: %s\n' "$active_provider"
+    printf 'Model:    %s\n' "$active_model"
+    return 0
+  fi
+
+  warn "Gateway inference is not fully configured after onboarding."
+
+  mapfile -t onboarding_pm < <(get_onboarding_provider_and_model)
+  onboarding_provider="${onboarding_pm[0]:-}"
+  onboarding_model="${onboarding_pm[1]:-}"
+
+  if [[ -n "$onboarding_provider" && -n "$onboarding_model" ]] && openshell provider get "$onboarding_provider" >/dev/null 2>&1; then
+    log "Restoring the onboarding provider selection"
+    openshell inference set --provider "$onboarding_provider" --model "$onboarding_model" --no-verify || \
+      warn "Could not restore onboarding inference selection automatically."
+
+    mapfile -t active_pm < <(get_active_provider_and_model)
+    active_provider="${active_pm[0]:-}"
+    active_model="${active_pm[1]:-}"
+  fi
+
+  if [[ -n "$active_provider" && -n "$active_model" ]]; then
+    log "Gateway inference is ready"
+    printf 'Provider: %s\n' "$active_provider"
+    printf 'Model:    %s\n' "$active_model"
+    return 0
+  fi
+
+  warn "The assistant may not answer until gateway inference is configured."
+  if [[ -n "$onboarding_provider" && -n "$onboarding_model" ]]; then
+    printf '\nTry:\n'
+    printf '  openshell inference set --provider %q --model %q --no-verify\n' "$onboarding_provider" "$onboarding_model"
+  else
+    printf '\nTry:\n'
+    printf '  ./providers/configure-gateway-provider.sh --status\n'
+    printf '  ./providers/configure-ollama-local.sh --model <model-name>\n'
+  fi
+}
+
+ensure_inference_timeout() {
+  local -a active_pm=()
+  local active_provider active_model
+
+  mapfile -t active_pm < <(get_active_provider_and_model)
+  active_provider="${active_pm[0]:-}"
+  active_model="${active_pm[1]:-}"
+
+  if [[ -z "$active_provider" || -z "$active_model" ]]; then
+    warn "Could not determine active provider/model; skipping inference timeout configuration."
+    return 0
+  fi
+
+  log "Setting inference timeout to ${INFERENCE_TIMEOUT_SECONDS}s"
+  openshell inference set \
+    --timeout "$INFERENCE_TIMEOUT_SECONDS" \
+    --provider "$active_provider" \
+    --model "$active_model" \
+    --no-verify || \
+    warn "Could not set inference timeout. Run manually: openshell inference set --timeout ${INFERENCE_TIMEOUT_SECONDS} --provider ${active_provider} --model ${active_model} --no-verify"
+}
+
 print_recovery_hints() {
   cat <<'EOF_HINTS'
 
@@ -167,6 +375,9 @@ main() {
   ensure_gateway_running
   print_recovery_hints
   run_onboarding
+  ensure_cli_pairing
+  ensure_inference_ready
+  ensure_inference_timeout
 }
 
 main "$@"

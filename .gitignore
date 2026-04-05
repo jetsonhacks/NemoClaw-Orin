@@ -9,6 +9,7 @@ Thumbs.db
 
 # Local tool/runtime artifacts
 .codex
+.claude
 *.log
 *.tmp
 tmp/
