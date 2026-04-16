@@ -120,7 +120,7 @@ patch_nemoclaw_onboard() {
   # applying, so re-running is safe.
 
   local clone_dir="$1"
-  local target="$clone_dir/bin/lib/onboard.js"
+  local target="$clone_dir/bin/lib/agent-onboard.js"
 
   [[ -f "$target" ]] || die "Cannot patch NemoClaw onboard: file not found: $target"
 
@@ -164,10 +164,10 @@ install_nemoclaw() {
   if [[ -d "$clone_dir" ]]; then
     warn "Clone directory already exists: $clone_dir"
     warn "Refreshing existing clone instead of cloning fresh"
-    # The Jetson patch modifies bin/lib/onboard.js. Reset it before pulling so
+    # The Jetson patch modifies bin/lib/agent-onboard.js. Reset it before pulling so
     # upstream changes to that file are not blocked by the local modification.
     # The patch is re-applied unconditionally below.
-    git -C "$clone_dir" checkout -- bin/lib/onboard.js 2>/dev/null || true
+    git -C "$clone_dir" checkout -- bin/lib/agent-onboard.js 2>/dev/null || true
   else
     git clone "$NEMOCLAW_CLONE_URL" "$clone_dir"
   fi
