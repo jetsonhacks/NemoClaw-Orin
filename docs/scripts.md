@@ -1,18 +1,27 @@
 # Scripts
 
+> [!IMPORTANT]
+> This page documents the historical JetsonHacks script layout. New NemoClaw
+> installs should follow upstream NVIDIA/NemoClaw. The only root-level helper
+> still presented as active here is `forward-openclaw.sh`.
+
 This repository intentionally exposes scripts in five layers:
 
-- repository root for normal operator workflows
+- repository root for the active forward helper and legacy workflows
 - `benchmarks/` for direct performance measurement helpers
-- `lib/bootstrap/` for install-time and first-run setup helpers
-- `lib/` for active recovery/runtime helper scripts
+- `lib/bootstrap/` for legacy install-time and first-run setup helpers
+- `lib/` for legacy recovery/runtime helper scripts
 - `lib/maintenance/` for occasional debugging, teardown, and maintenance tools
 
 ## Root workflows
 
+The old setup/onboard/restart/recovery scripts are legacy and retained for
+reference so older JetsonHacks videos, posts, and troubleshooting notes still
+map to the repository. They are not the recommended path for new installs.
+
 ### `setup-jetson-orin.sh`
 
-Main one-shot setup entry point.
+Legacy one-shot setup entry point.
 
 What it does:
 
@@ -33,19 +42,21 @@ What it does not do:
 
 ### `onboard-nemoclaw.sh`
 
-Runs NemoClaw onboarding with extra checks around tooling, memory, swap, port conflicts, and image validation.
+Legacy NemoClaw onboarding wrapper with extra checks around tooling, memory,
+swap, port conflicts, and image validation.
 
 ### `restart-nemoclaw.sh`
 
-Restores the outer OpenShell gateway substrate after reboot.
+Legacy helper that restores the outer OpenShell gateway substrate after reboot.
 
 ### `recover-sandbox.sh`
 
-Restores the user-facing path for an existing sandbox after reboot.
+Legacy helper that restores the user-facing path for an existing sandbox after
+reboot.
 
 ### `forward-openclaw.sh`
 
-Manages browser forwarding for OpenClaw.
+Active helper for browser forwarding to OpenClaw.
 
 What it does:
 

@@ -1,5 +1,11 @@
 # Troubleshooting
 
+> [!IMPORTANT]
+> This page was written for the legacy JetsonHacks-managed install path. New
+> NemoClaw installs should follow upstream NVIDIA/NemoClaw troubleshooting
+> guidance first. The notes below are retained for older installs and migration
+> context.
+
 ## `nemoclaw` or `openshell` is not found after setup
 
 Reload your shell environment:
@@ -37,7 +43,10 @@ Connection refused (os error 111)
 
 the most likely cause is that the OpenShell gateway is not currently running.
 
-In the normal case, the correct recovery procedure is to use this repository's recovery helpers to restore the gateway substrate and reconnect to the existing NemoClaw sandbox. Do not recreate the gateway unless you are intentionally resetting OpenShell state.
+For an older JetsonHacks-managed install, the historical recovery procedure was
+to use this repository's recovery helpers to restore the gateway substrate and
+reconnect to the existing NemoClaw sandbox. Do not recreate the gateway unless
+you are intentionally resetting OpenShell state.
 
 ```bash
 ./restart-nemoclaw.sh
@@ -53,7 +62,10 @@ nemoclaw list
 nemoclaw <sandbox-name> connect
 ```
 
-Avoid using `openshell gateway start` or `openshell gateway start --recreate` for normal reboot recovery. Recreating the gateway is a destructive recovery action, and a plain raw start can create a second gateway named `openshell` and conflict with the existing NemoClaw path.
+For those older installs, avoid using `openshell gateway start` or `openshell
+gateway start --recreate` for reboot recovery. Recreating the gateway is a
+destructive recovery action, and a plain raw start can create a second gateway
+named `openshell` and conflict with the existing NemoClaw path.
 
 ## Gateway cluster DNS looks broken
 

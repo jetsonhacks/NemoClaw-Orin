@@ -1,224 +1,89 @@
-# NemoClaw on Jetson Orin
+# JetsonHacks NemoClaw Transition Helpers
 
-Scripts and documentation for running NemoClaw on NVIDIA Jetson Orin systems with OpenShell.
+Jetson-specific helpers and transition notes for running NVIDIA NemoClaw on Jetson systems.
 
-This repository packages the Jetson-specific setup and recovery work that is easy to get wrong when following the upstream tools directly.
+This repository is no longer the primary install path for NemoClaw on Jetson. New installs should use upstream NVIDIA/NemoClaw:
 
-See the JetsonHacks article: <https://wp.me/p7ZgI9-3Uv>
+- NVIDIA/NemoClaw: <https://github.com/NVIDIA/NemoClaw>
+- NemoClaw docs: <https://docs.nvidia.com/nemoclaw/>
 
-## Overview
+This repo now exists to keep older JetsonHacks viewers oriented, preserve Jetson-specific notes, and retain the small helper that is still useful after an upstream install: `forward-openclaw.sh`.
 
-This project is for people who want a more reliable NemoClaw workflow on Jetson Orin.
+In short:
 
-It focuses on:
+- new installs go upstream
+- this repo is for Jetson-specific helpers and migration notes
+- `forward-openclaw.sh` is the main retained helper
+- older setup, onboard, restart, and recovery scripts are legacy
 
-- preparing a Jetson host for OpenShell and NemoClaw
-- installing the required CLIs
-- running onboarding with Jetson-oriented guardrails
-- recovering an existing sandbox after reboot
-- configuring local or alternate inference providers
-- measuring direct local-model performance with standalone benchmarks
+## If You Came Here From the Older Video/Blog, Read This First
 
-The default bootstrap target in this repository is OpenShell `v0.0.22`.
+Older JetsonHacks content pointed here because this repo carried the Jetson install flow while upstream support was still moving quickly. That is no longer the recommended path.
 
-## Related Upstream Projects
+Use upstream NVIDIA/NemoClaw for a fresh install. Treat this repository as a transition/helper repo, not the installer.
 
-- OpenShell: <https://github.com/NVIDIA/OpenShell>
-- NemoClaw: <https://github.com/NVIDIA/NemoClaw>
+The old top-level setup, onboard, restart, and recovery scripts are retained for reference only. They mostly duplicate behavior that now belongs upstream.
 
-## Who This Is For
+## Migration Notes for Older JetsonHacks Installs
 
-This repository is useful if you are:
+Older versions of this repository installed and patched a local `~/NemoClaw` clone.
 
-- setting up NemoClaw on a Jetson Orin for the first time
-- trying to avoid repeating Jetson-specific OpenShell setup steps manually
-- recovering an existing NemoClaw sandbox after restart or reboot
-- switching `inference.local` to Ollama, NVIDIA Endpoints, or another compatible provider
+For a clean move to upstream:
 
-## Main Scripts
+1. Use the matching legacy maintenance script under `lib/maintenance/` for the old JetsonHacks-managed flow you used.
+2. Confirm the old JetsonHacks-managed pieces are gone, including the patched `~/NemoClaw` checkout where applicable.
+3. Install again from upstream NVIDIA/NemoClaw.
 
-The main operator commands are:
+For example, `lib/maintenance/uninstall-setup-jetson-orin.sh` undoes the legacy `setup-jetson-orin.sh` setup flow.
 
-- `./setup-jetson-orin.sh`
-  Prepare the host, install tools, verify the selected OpenShell image, and write the environment override.
-- `./onboard-nemoclaw.sh`
-  Run NemoClaw onboarding with checks around memory, swap, image availability, and port conflicts.
-- `./restart-nemoclaw.sh`
-  Restore the outer OpenShell gateway substrate after reboot.
-- `./recover-sandbox.sh`
-  Restore the user-facing path for an existing sandbox after reboot.
-- `./forward-openclaw.sh`
-  Ensure, inspect, or stop the browser forward used by OpenClaw.
+The maintenance scripts are preferred because they remove what the old JetsonHacks setup flow created. If you already cleaned up manually and an old patched `~/NemoClaw` checkout is still present, remove it only after confirming it is not a separate checkout you still need.
 
-## Prerequisites
+## Still Useful Here
 
-Docker is often already installed as well, but that is not guaranteed on every system.
+### `forward-openclaw.sh`
 
-If Docker is missing, or if the NVIDIA container runtime is not configured correctly for Jetson, use:
+Use this helper when an existing upstream-created NemoClaw sandbox is running but you want a predictable local browser forward for OpenClaw.
 
 ```bash
-./lib/bootstrap/install-docker-jetson.sh
+./forward-openclaw.sh <sandbox-name>
+./forward-openclaw.sh <sandbox-name> --status
+./forward-openclaw.sh <sandbox-name> --stop
 ```
 
-After Docker is installed, add your user to the `docker` group so you can run Docker without `sudo`:
+By default it manages a host-side forward on `127.0.0.1:18789`.
 
-```bash
-sudo usermod -aG docker "$USER"
-newgrp docker
-```
+## Legacy Scripts
 
-If you prefer, you can log out and log back in instead of running `newgrp docker`.
+These root-level scripts are legacy JetsonHacks install/recovery helpers. They are kept so older posts, videos, and troubleshooting references still make sense, but they are not the recommended workflow for new installs.
 
-`setup-jetson-orin.sh` installs or verifies Node.js, the OpenShell CLI, and the NemoClaw CLI. It also checks the local Docker/OpenShell prerequisites used by the rest of this workflow.
+- `setup-jetson-orin.sh` - legacy JetsonHacks host setup flow
+- `onboard-nemoclaw.sh` - legacy JetsonHacks onboarding wrapper
+- `restart-nemoclaw.sh` - legacy OpenShell gateway restart helper
+- `recover-sandbox.sh` - legacy sandbox recovery helper
 
-## Quick Start
+Supporting directories such as `lib/`, `providers/`, `benchmarks/`, and `docs/` are mostly historical support material for those scripts. Some notes may still be useful for debugging or provider experiments, but they should not replace the upstream install guide.
 
-For a first-time setup:
+## Upstream Install Pointer
 
-```bash
-./setup-jetson-orin.sh
-source ~/.bashrc
-./onboard-nemoclaw.sh
-```
+For new installs and normal day-to-day setup, use the upstream `nemoclaw` CLI and documentation.
 
-After onboarding completes:
+Start here:
 
-```bash
-./providers/configure-gateway-provider.sh --status
-nemoclaw <sandbox-name> connect
-openclaw tui
-```
-
-If `--status` shows that gateway inference is not configured, restore the onboarding selection or pick a local model before opening the UI:
-
-```bash
-openshell inference set --provider <onboarding-provider> --model <onboarding-model> --no-verify
-# or
-./providers/configure-ollama-local.sh --model <model-name>
-```
-
-## Common Workflows
-
-### Recover after reboot
-
-```bash
-./recover-sandbox.sh <sandbox-name>
-```
-
-If you only need to restore the outer OpenShell layer:
-
-```bash
-./restart-nemoclaw.sh
-```
-
-For a more explicit debug flow:
-
-```bash
-./restart-nemoclaw.sh --debug
-./recover-sandbox.sh <sandbox-name> --skip-outer-restart --debug
-```
-
-## Important Notes
-
-> [!IMPORTANT]
-> Do not remove the `~/NemoClaw` clone. NemoClaw stages its Docker build context from that directory during onboarding.
-
-> [!WARNING]
-> Stop Ollama and other large Docker workloads before running `./onboard-nemoclaw.sh` on smaller Jetson systems. The onboarding path can become memory-heavy during image import and push.
-
-Docker-managed Ollama:
-
-```bash
-docker stop ollama
-```
-
-Host-managed Ollama:
-
-```bash
-sudo systemctl stop ollama
-```
-
-Restart it after `nemoclaw <sandbox-name> connect` succeeds.
-
-> [!WARNING]
-> Do not use raw `openshell gateway start` for normal NemoClaw reboot recovery. Use the repository recovery helper instead:
->
-> ```bash
-> ./recover-sandbox.sh <sandbox-name>
-> ```
-
-## Providers
-
-After onboarding, the scripts under `providers/` can point `inference.local` at:
-
-- a local Ollama instance
-- a local vLLM server
-- NVIDIA Endpoints
-- another OpenAI-compatible endpoint
-
-Provider details and examples live in [providers/README_PROVIDERS.md](providers/README_PROVIDERS.md).
-
-## Repository Structure
-
-- `./`
-  Main operator workflows.
-- `lib/bootstrap/`
-  Install-time and first-run helpers.
-- `lib/`
-  Shared runtime and recovery helpers.
-- `lib/maintenance/`
-  Lower-level debugging, teardown, and maintenance tools.
-- `providers/`
-  Inference provider management scripts.
-- `benchmarks/`
-  Standalone direct-provider benchmark helpers.
-- `docs/`
-  Supporting references and troubleshooting guides.
-
-## Documentation
-
-- [docs/scripts.md](docs/scripts.md)
-- [docs/troubleshooting.md](docs/troubleshooting.md)
-- [docs/maintenance.md](docs/maintenance.md)
-- [docs/rca/2026-04-04-nemoclaw-374a847-regression.md](docs/rca/2026-04-04-nemoclaw-374a847-regression.md)
-- [docs/adr/0001-inference-timeout.md](docs/adr/0001-inference-timeout.md)
-- [docs/adr/0002-cli-pairing-auto-approval.md](docs/adr/0002-cli-pairing-auto-approval.md)
-- [providers/README_PROVIDERS.md](providers/README_PROVIDERS.md)
-- [benchmarks/README.md](benchmarks/README.md)
+- <https://github.com/NVIDIA/NemoClaw>
+- <https://docs.nvidia.com/nemoclaw/>
 
 ## Release Notes
 
-### v0.0.4 April, 2026
+Current release: `v0.0.5 April, 2026`
 
-- add automatic local CLI pairing approval after onboard and recovery
-- re-apply a 120-second OpenShell managed inference timeout during onboard and recovery
-- restore the onboarding-selected provider/model when gateway inference is unset after onboard
-- add direct Ollama benchmark tooling under `benchmarks/`
-- document the regression investigation and local decisions with RCA and ADR records
+- reposition the repository as a JetsonHacks transition/helper repo instead of the primary NemoClaw install path
+- route new installs to upstream NVIDIA/NemoClaw
+- add migration guidance for older JetsonHacks installs that used a patched local `~/NemoClaw` clone
+- keep `forward-openclaw.sh` visible as the main retained helper
+- mark older setup, onboard, restart, and recovery scripts as legacy/reference material
 
-Tested with:
+Older release history is in [CHANGELOG.md](CHANGELOG.md).
 
-- OpenShell `v0.0.22`
-- NemoClaw commit `374a847`
+## Repository Status
 
-### v0.0.3 April, 2026
-
-- tested on Jetson AGX Orin and Orin Nano
-- bootstrap target moved to OpenShell `v0.0.22`
-- default setup now uses the upstream cluster image instead of a locally patched image
-- OpenShell now handles SSH handshake persistence upstream
-- OpenShell now persists sandbox state across gateway stop and start cycles
-
-### v0.0.2 April, 2026
-
-- tested on Jetson AGX Orin and Orin Nano
-- moved to OpenShell `v0.0.20`
-
-### Initial Release March, 2026
-
-- tested on Jetson Orin Nano
-- initial Jetson-oriented NemoClaw bringup and recovery workflow
-
-## Project Status
-
-NemoClaw and OpenShell are evolving quickly. This repository tracks a tested Jetson-oriented workflow, but some upstream behavior may change over time.
+This repository is in transition. The front page is intentionally compact so viewers arriving from older JetsonHacks material can quickly see what changed, how to migrate, and which helper remains relevant.

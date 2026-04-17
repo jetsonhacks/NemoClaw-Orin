@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# LEGACY: retained for older JetsonHacks recovery references. Prefer upstream
+# NemoClaw/OpenShell lifecycle commands for new installs.
+#
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$ROOT_DIR/lib/script-ui.sh"
 

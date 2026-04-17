@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# LEGACY: retained for older JetsonHacks install references. New NemoClaw
+# installs should use upstream NVIDIA/NemoClaw.
+#
 # Run NemoClaw onboarding in a more controlled way.
 # Assumes setup-jetson-orin.sh has already been run.
 

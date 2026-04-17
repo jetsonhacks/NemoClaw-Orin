@@ -1,5 +1,10 @@
 # Maintenance
 
+> [!IMPORTANT]
+> This page mostly documents the legacy JetsonHacks install flow. New NemoClaw
+> installs should follow upstream NVIDIA/NemoClaw. Use these notes only when
+> cleaning up or inspecting an older JetsonHacks-managed install.
+
 ## Checking for upstream updates
 
 To see whether your pinned OpenShell image is behind upstream OpenShell:
@@ -14,7 +19,9 @@ For machine-readable version output:
 ./lib/check-openshell-cluster-update.sh --latest-version
 ```
 
-If a newer upstream release is available, refresh the pinned image and update the environment override by running:
+For a legacy JetsonHacks-managed install, if a newer upstream release is
+available, refresh the pinned image and update the environment override by
+running:
 
 ```bash
 ./setup-jetson-orin.sh

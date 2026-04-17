@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# LEGACY: retained for older JetsonHacks install references. New NemoClaw
+# installs should use upstream NVIDIA/NemoClaw.
+#
 # Prepare a Jetson Orin host for OpenShell/NemoClaw by:
 # - installing or verifying the required host-side tools
 # - running the reusable host-prereqs helper
